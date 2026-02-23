@@ -1,0 +1,31 @@
+workspace: northstar-metrics
+owner_team: sre
+channels:
+  - name: "#ops-incidents"
+    purpose: "Primary incident coordination channel for P1/P2/P3 events."
+    retention_days: 3650
+    required_memberships:
+      - sre-oncall
+      - incident-commander
+      - security-oncall
+  - name: "#ops-changes"
+    purpose: "Announce approved production changes and rollback notices."
+    retention_days: 1825
+  - name: "#eng-oncall"
+    purpose: "Paging relay channel mirrored from PagerDuty/Opsgenie alerts."
+    retention_days: 365
+  - name: "#exec-incident-brief"
+    purpose: "Leadership updates for P1 incidents only."
+    retention_days: 3650
+  - name: "#audit-ops"
+    purpose: "Immutable audit notifications from Jira and GitHub Actions webhooks."
+    retention_days: 3650
+  - name: "#ai-ops-agent"
+    purpose: "AI agent status, task execution logs, and handoff notes."
+    retention_days: 365
+reporting_defaults:
+  incident_channel: "#ops-incidents"
+  escalation_channel: "#eng-oncall"
+  executive_channel: "#exec-incident-brief"
+  change_channel: "#ops-changes"
+  audit_channel: "#audit-ops"

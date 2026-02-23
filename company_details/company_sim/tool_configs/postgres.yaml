@@ -1,0 +1,31 @@
+platform: postgres
+default_timezone: UTC
+clusters:
+  - name: prod-core
+    engine_version: "15"
+    database: app_prod
+    rpo_minutes: 5
+    rto_minutes: 30
+  - name: prod-analytics
+    engine_version: "14"
+    database: analytics_prod
+    rpo_minutes: 15
+    rto_minutes: 60
+  - name: staging-core
+    engine_version: "15"
+    database: app_staging
+    rpo_minutes: 60
+    rto_minutes: 240
+audit_logging:
+  audit_schema: ops_audit
+  required_tables:
+    - deployment_events
+    - incident_timeline
+    - access_grants
+    - rollback_events
+  immutable_export_target: s3://northstar-compliance/ops_audit/
+  export_frequency_minutes: 15
+  retention_days: 2555
+change_controls:
+  ddl_requires_change_ticket: true
+  destructive_sql_requires_two_approvals: true

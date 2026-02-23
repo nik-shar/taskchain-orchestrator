@@ -1,0 +1,44 @@
+{
+  "events": [
+    {
+      "timestamp": "2026-02-14T10:01:00Z",
+      "service": "saas-api",
+      "level": "ERROR",
+      "pattern": "timeout",
+      "message": "upstream timeout while fetching tenant profile",
+      "trace_id": "trc-001"
+    },
+    {
+      "timestamp": "2026-02-14T10:06:00Z",
+      "service": "saas-api",
+      "level": "WARN",
+      "pattern": "retry",
+      "message": "retrying request after 502 response",
+      "trace_id": "trc-002"
+    },
+    {
+      "timestamp": "2026-02-14T10:11:00Z",
+      "service": "saas-api",
+      "level": "ERROR",
+      "pattern": "timeout",
+      "message": "database timeout in read replica",
+      "trace_id": "trc-003"
+    },
+    {
+      "timestamp": "2026-02-14T10:07:00Z",
+      "service": "saas-web",
+      "level": "INFO",
+      "pattern": "deploy",
+      "message": "frontend deployment completed",
+      "trace_id": "trc-004"
+    },
+    {
+      "timestamp": "2026-02-14T10:12:00Z",
+      "service": "saas-web",
+      "level": "ERROR",
+      "pattern": "auth",
+      "message": "auth callback failed due to invalid state",
+      "trace_id": "trc-005"
+    }
+  ]
+}

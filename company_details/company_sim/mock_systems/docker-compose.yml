@@ -1,0 +1,24 @@
+services:
+  jira-mock:
+    build:
+      context: ../..
+      dockerfile: company_sim/mock_systems/Dockerfile
+    command: ["uvicorn", "company_sim.mock_systems.jira_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8001:8000"
+
+  metrics-mock:
+    build:
+      context: ../..
+      dockerfile: company_sim/mock_systems/Dockerfile
+    command: ["uvicorn", "company_sim.mock_systems.metrics_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8002:8000"
+
+  logs-mock:
+    build:
+      context: ../..
+      dockerfile: company_sim/mock_systems/Dockerfile
+    command: ["uvicorn", "company_sim.mock_systems.logs_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8003:8000"

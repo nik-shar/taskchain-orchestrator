@@ -1,0 +1,50 @@
+base_url: "https://northstar.atlassian.net"
+projects:
+  - key: OPS
+    name: "Operations and Reliability"
+    issue_types:
+      - Incident
+      - Problem
+      - Change
+      - Postmortem
+  - key: APP
+    name: "Application Engineering"
+    issue_types:
+      - Bug
+      - Story
+      - Task
+  - key: DATA
+    name: "Data Platform"
+    issue_types:
+      - Incident
+      - Task
+priority_map:
+  P1: Highest
+  P2: High
+  P3: Medium
+incident_fields:
+  required:
+    - summary
+    - severity
+    - impacted_services
+    - customer_impact
+    - detection_time_utc
+    - incident_commander
+    - slack_channel
+    - timeline
+change_fields:
+  required:
+    - summary
+    - change_type
+    - risk_level
+    - planned_start_utc
+    - planned_end_utc
+    - rollback_plan
+    - approvers
+    - linked_pr
+workflows:
+  incident: "New -> Investigating -> Mitigating -> Monitoring -> Resolved -> Postmortem"
+  change: "Draft -> In Review -> Approved -> Scheduled -> Implementing -> Completed"
+integration_rules:
+  on_incident_create_post_to: "#ops-incidents"
+  on_status_change_post_to: "#audit-ops"

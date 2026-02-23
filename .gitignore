@@ -52,3 +52,12 @@ data/.jira_subset_tmp/
 README_for_me.md
 SUMMARY.md
 TUTORIAL.md
+
+# Local subproject artifacts and oversized datasets
+agent-orchestrator/.agent/
+agent-orchestrator/.pytest_cache/
+agent-orchestrator/.ruff_cache/
+agent-orchestrator/.env
+agent-orchestrator/.env.*
+company_details/.venv/
+company_details/2025-06-23 ThePublicJiraDataset/

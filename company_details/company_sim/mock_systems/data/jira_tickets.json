@@ -1,0 +1,43 @@
+{
+  "tickets": [
+    {
+      "key": "OPS-101",
+      "project_key": "OPS",
+      "issue_type": "Incident",
+      "summary": "Intermittent 502 errors on public API",
+      "description": "Spike in gateway errors in US region.",
+      "severity": "P2",
+      "status": "Investigating",
+      "assignee": "Avery Kim",
+      "labels": ["api", "gateway"],
+      "created_at": "2026-02-14T09:58:00Z",
+      "updated_at": "2026-02-14T10:03:00Z"
+    },
+    {
+      "key": "OPS-102",
+      "project_key": "OPS",
+      "issue_type": "Change",
+      "summary": "Roll out API cache tuning",
+      "description": "Controlled production rollout for cache size parameters.",
+      "severity": "P3",
+      "status": "Approved",
+      "assignee": "Jordan Patel",
+      "labels": ["change", "performance"],
+      "created_at": "2026-02-13T16:00:00Z",
+      "updated_at": "2026-02-13T17:12:00Z"
+    },
+    {
+      "key": "APP-220",
+      "project_key": "APP",
+      "issue_type": "Bug",
+      "summary": "Webhook retry idempotency bug",
+      "description": "Duplicate webhook delivery under timeout conditions.",
+      "severity": "P2",
+      "status": "In Progress",
+      "assignee": "Casey Rivera",
+      "labels": ["webhook"],
+      "created_at": "2026-02-12T11:30:00Z",
+      "updated_at": "2026-02-13T10:45:00Z"
+    }
+  ]
+}

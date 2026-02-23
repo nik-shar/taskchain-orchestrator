@@ -1,0 +1,28 @@
+timezone: UTC
+schedule_type: weekly
+primary_rotation:
+  - week_start: "2026-02-09"
+    engineer: "Avery Kim"
+    slack_handle: "@avery"
+  - week_start: "2026-02-16"
+    engineer: "Jordan Patel"
+    slack_handle: "@jordan"
+  - week_start: "2026-02-23"
+    engineer: "Morgan Lee"
+    slack_handle: "@morgan"
+secondary_rotation:
+  - week_start: "2026-02-09"
+    engineer: "Reese Chen"
+    slack_handle: "@reese"
+  - week_start: "2026-02-16"
+    engineer: "Casey Rivera"
+    slack_handle: "@casey"
+  - week_start: "2026-02-23"
+    engineer: "Dakota Singh"
+    slack_handle: "@dakota"
+escalation_order:
+  - primary_oncall
+  - secondary_oncall
+  - incident_manager
+  - vp_engineering
+handoff_channel: "#eng-oncall"
