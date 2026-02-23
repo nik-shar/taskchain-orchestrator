@@ -47,3 +47,8 @@ temp/
 data/tasks.db
 data/rag_index.sqlite
 data/.jira_subset_tmp/
+
+# Personal notes/docs (local only)
+README_for_me.md
+SUMMARY.md
+TUTORIAL.md
