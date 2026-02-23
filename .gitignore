@@ -60,3 +60,4 @@ agent-orchestrator/.env
 agent-orchestrator/.env.*
 company_details/.venv/
 company_details/2025-06-23 ThePublicJiraDataset/
+company_details/*.pdf
