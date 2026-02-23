@@ -5,7 +5,7 @@ This guide shows how to run a complete local RAG pipeline on:
 
 You already completed extraction, so this tutorial starts from that point.
 
-## 1. What You Are Building
+## 1. What We Are Building
 
 RAG has 3 practical stages:
 
