@@ -1,0 +1,49 @@
+# Virtual environments
+venv/
+.venv/
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE/editor/system
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Runtime artifacts
+*.log
+tmp/
+temp/
+data/tasks.db
+data/rag_index.sqlite
+data/.jira_subset_tmp/
