@@ -1,0 +1,137 @@
+{
+  "dataset": "../data/retrieval_eval_queries.sample.jsonl",
+  "k": 3,
+  "limit": 6,
+  "examples": 8,
+  "modes": {
+    "lexical": {
+      "examples_total": 8,
+      "examples_scored": 8,
+      "k": 3,
+      "hit_rate_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr_at_k": 1.0,
+      "latency_ms": {
+        "p50": 5.54,
+        "p95": 20.73,
+        "avg": 9.44
+      },
+      "queries": [
+        {
+          "query": "user profile picture does not display for some users",
+          "expected_tickets": [
+            "WLC-43"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-43",
+            "UPM-4376",
+            "DAOS-9069"
+          ],
+          "latency_ms": 20.28,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "username changes are not read by who is looking panel",
+          "expected_tickets": [
+            "WLC-41",
+            "WLC-34"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-34",
+            "WLC-41"
+          ],
+          "latency_ms": 3.1,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "users are occasionally displayed twice",
+          "expected_tickets": [
+            "WLC-42",
+            "WLC-32"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-32",
+            "WLC-42"
+          ],
+          "latency_ms": 1.26,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "error R14 memory quota exceeded in dynos",
+          "expected_tickets": [
+            "WLC-15"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-15"
+          ],
+          "latency_ms": 7.87,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "boot timeout error R10 on startup",
+          "expected_tickets": [
+            "WLC-14"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-14",
+            "UPM-5267",
+            "WEBHOOKS-84"
+          ],
+          "latency_ms": 17.09,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "anonymous user gets error when accessing issue",
+          "expected_tickets": [
+            "WLC-12"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-12",
+            "RTFACT-26356",
+            "RTFACT-26513"
+          ],
+          "latency_ms": 20.98,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "cannot request user details without authenticated user context",
+          "expected_tickets": [
+            "WLC-10"
+          ],
+          "retrieved_tickets_topk": [
+            "WLC-10"
+          ],
+          "latency_ms": 1.7,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        },
+        {
+          "query": "webhooks async jira user context is not set",
+          "expected_tickets": [
+            "WEBHOOKS-160"
+          ],
+          "retrieved_tickets_topk": [
+            "WEBHOOKS-160"
+          ],
+          "latency_ms": 3.21,
+          "hit_at_k": true,
+          "recall_at_k": 1.0,
+          "mrr_at_k": 1.0
+        }
+      ]
+    }
+  }
+}

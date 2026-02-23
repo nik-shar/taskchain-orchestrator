@@ -1,0 +1,8 @@
+{"query":"user profile picture does not display for some users","expected_tickets":["WLC-43"]}
+{"query":"username changes are not read by who is looking panel","expected_tickets":["WLC-41","WLC-34"]}
+{"query":"users are occasionally displayed twice","expected_tickets":["WLC-42","WLC-32"]}
+{"query":"error R14 memory quota exceeded in dynos","expected_tickets":["WLC-15"]}
+{"query":"boot timeout error R10 on startup","expected_tickets":["WLC-14"]}
+{"query":"anonymous user gets error when accessing issue","expected_tickets":["WLC-12"]}
+{"query":"cannot request user details without authenticated user context","expected_tickets":["WLC-10"]}
+{"query":"webhooks async jira user context is not set","expected_tickets":["WEBHOOKS-160"],"service":"WEBHOOKS"}

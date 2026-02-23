@@ -1,0 +1,99 @@
+{
+  "name": "rag_subset_v1_incident_focused",
+  "jira": {
+    "fields": [
+      "key",
+      "fields.summary",
+      "fields.description",
+      "fields.issuetype.name",
+      "fields.priority.name",
+      "fields.status.name",
+      "fields.project.key",
+      "fields.created",
+      "fields.updated",
+      "fields.labels"
+    ],
+    "collections": [
+      {
+        "name": "JiraEcosystem",
+        "target_docs": 1500,
+        "issue_types": [
+          "Incident",
+          "Problem",
+          "Service Request",
+          "Bug",
+          "Task",
+          "Story",
+          "Improvement"
+        ],
+        "export_multiplier": 3
+      },
+      {
+        "name": "Hyperledger",
+        "target_docs": 800,
+        "issue_types": [
+          "Bug",
+          "Task",
+          "Story",
+          "Improvement",
+          "New Feature",
+          "Epic"
+        ],
+        "export_multiplier": 2
+      },
+      {
+        "name": "JFrog",
+        "target_docs": 700,
+        "issue_types": [
+          "Bug",
+          "Task",
+          "Story",
+          "Improvement",
+          "Service Request"
+        ],
+        "export_multiplier": 2
+      },
+      {
+        "name": "IntelDAOS",
+        "target_docs": 500,
+        "issue_types": [
+          "Bug",
+          "Story",
+          "Epic",
+          "Technical task"
+        ],
+        "export_multiplier": 2
+      },
+      {
+        "name": "Sonatype",
+        "target_docs": 500,
+        "issue_types": [
+          "Bug",
+          "Task",
+          "Story",
+          "Improvement",
+          "Question",
+          "Problem"
+        ],
+        "export_multiplier": 2
+      }
+    ]
+  },
+  "incident": {
+    "limit": 10000,
+    "mode": "latest_row_per_incident_by_sys_mod_count"
+  },
+  "output": {
+    "format": "jsonl",
+    "document_schema": {
+      "doc_id": "string",
+      "source": "jira | incident_event_log",
+      "text": "string",
+      "metadata": "object"
+    },
+    "recommended_chunking": {
+      "chunk_chars": 900,
+      "overlap_chars": 120
+    }
+  }
+}
