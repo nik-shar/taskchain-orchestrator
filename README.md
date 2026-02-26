@@ -244,7 +244,3 @@ Retrieval and company data:
 - Phase 2: complete (optional OpenAI-backed planner/tool paths with deterministic fallback).
 - Phase 3: complete (expanded toolset, stronger verification, reliability hardening, observability).
 - Phase 4: planned (Cloud Run deployment + managed Postgres/Cloud SQL).
-
-## License
-
-Choose a license before publishing publicly (MIT is common for portfolio projects).
