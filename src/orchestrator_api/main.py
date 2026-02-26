@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
             "max_retries": _env_int("ORCHESTRATOR_TOOL_MAX_RETRIES", default=1),
             "backoff_s": _env_float("ORCHESTRATOR_TOOL_BACKOFF_S", default=0.05),
         },
+        fail_fast=os.getenv("ORCHESTRATOR_EXECUTOR_FAIL_FAST", "0").strip() == "1",
     )
 
     app = FastAPI(title="orchestrator_api", version="0.1.0")

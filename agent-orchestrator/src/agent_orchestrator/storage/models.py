@@ -11,6 +11,7 @@ class TaskRecord(BaseModel):
 
     task_id: str
     prompt: str
+    context: dict[str, str] | None = None
     status: str
     created_at: datetime
     updated_at: datetime

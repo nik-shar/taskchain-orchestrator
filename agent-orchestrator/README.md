@@ -84,6 +84,8 @@ cd agent-orchestrator
 python -m pip install -e ".[dev]"
 uvicorn agent_orchestrator.api.main:app --reload --port 8010
 ```
+Operational runbook: `RUNBOOK.md` (local + Cloud Run + troubleshooting).
+
 Settings are loaded automatically from `.env` / `.env.local` at repo root.
 Set `AGENT_ORCHESTRATOR_DATABASE_URL` in `.env` before startup.
 `ORCHESTRATOR_DATABASE_URL` is also accepted as a fallback for compatibility with the main repo.
@@ -272,8 +274,10 @@ Create a task:
 ```bash
 curl -s -X POST "http://127.0.0.1:8010/tasks" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"P1 incident: user profile picture errors causing latency and failures."}'
+  -d '{"prompt":"P1 incident: user profile picture errors causing latency and failures.","context":{"service":"profile-media-api","priority":"Major","severity":"SEV2","status":"Long Term Backlog"}}'
 ```
+
+`context` is optional, but recommended for better retrieval filtering and deterministic priority classification.
 
 Run it:
 ```bash

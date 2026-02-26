@@ -21,6 +21,7 @@ from agent_orchestrator.tools import list_tools
 
 class CreateTaskRequest(BaseModel):
     prompt: str = Field(min_length=1)
+    context: dict[str, str] | None = None
 
 
 def _ensure_runtime_state(
@@ -102,7 +103,10 @@ def create_app(
     @app.post("/tasks", response_model=TaskRecord)
     def create_task(payload: CreateTaskRequest, request: Request) -> TaskRecord:
         task_storage: TaskStorage = _get_task_storage(request)
-        return task_storage.create_task(prompt=payload.prompt)
+        return task_storage.create_task(
+            prompt=payload.prompt,
+            context=_normalized_context(payload.context),
+        )
 
     @app.post("/tasks/{task_id}/run", response_model=TaskRecord)
     def run_task(task_id: str, request: Request) -> TaskRecord:
@@ -114,6 +118,7 @@ def create_app(
         state = initial_state(
             task_id=task_id,
             user_input=record.prompt,
+            task_context=record.context,
             mode=settings.planner_mode,
             executor_mode=settings.executor_mode,
             retry_budget=settings.max_graph_loops,
@@ -195,3 +200,18 @@ def _build_verification_payload(result: dict[str, Any]) -> dict[str, Any]:
         "executor": executor if isinstance(executor, dict) else {},
     }
     return verification_payload
+
+
+def _normalized_context(context: dict[str, str] | None) -> dict[str, str] | None:
+    if not isinstance(context, dict):
+        return None
+    allowed = ("service", "priority", "severity", "status")
+    normalized: dict[str, str] = {}
+    for key in allowed:
+        raw = context.get(key)
+        if raw is None:
+            continue
+        value = str(raw).strip()
+        if value:
+            normalized[key] = value
+    return normalized or None

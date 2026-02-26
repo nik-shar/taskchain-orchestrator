@@ -69,7 +69,23 @@ def verify_execution(plan: Plan, execution_result: dict[str, Any]) -> Verificati
                     continue
                 tool_name = tool_result.get("tool")
                 if tool_name in INCIDENT_EVIDENCE_TOOLS:
-                    has_incident_evidence = True
+                    output = tool_result.get("output", {})
+                    has_evidence = _has_non_empty_incident_evidence(tool_name, output)
+                    if has_evidence:
+                        has_incident_evidence = True
+                    else:
+                        reasons.append(
+                            f"Incident evidence tool '{tool_name}' returned no usable evidence."
+                        )
+                    if has_evidence and tool_name in {
+                        "search_incident_knowledge",
+                        "search_previous_issues",
+                    }:
+                        if not _hits_have_citations(output):
+                            reasons.append(
+                                f"Incident evidence tool '{tool_name}' returned hits without "
+                                "citation_id/citation_source."
+                            )
                 if tool_name == "fetch_company_reference":
                     output = tool_result.get("output", {})
                     source = output.get("source") if isinstance(output, dict) else None
@@ -102,3 +118,39 @@ def _is_incident_plan(plan: Plan) -> bool:
                 if "incident" in text:
                     return True
     return False
+
+
+def _has_non_empty_incident_evidence(tool_name: str, output: Any) -> bool:
+    if not isinstance(output, dict):
+        return False
+    if tool_name in {"search_incident_knowledge", "search_previous_issues"}:
+        hits = output.get("hits")
+        if isinstance(hits, list) and hits:
+            return True
+        total = output.get("total")
+        return isinstance(total, int) and total > 0
+    if tool_name == "jira_search_tickets":
+        tickets = output.get("tickets")
+        if isinstance(tickets, list) and tickets:
+            return True
+        total = output.get("total")
+        return isinstance(total, int) and total > 0
+    return False
+
+
+def _hits_have_citations(output: Any) -> bool:
+    if not isinstance(output, dict):
+        return False
+    hits = output.get("hits")
+    if not isinstance(hits, list) or not hits:
+        return False
+    for hit in hits:
+        if not isinstance(hit, dict):
+            return False
+        citation_id = hit.get("citation_id")
+        citation_source = hit.get("citation_source")
+        if not isinstance(citation_id, str) or not citation_id.strip():
+            return False
+        if not isinstance(citation_source, str) or not citation_source.strip():
+            return False
+    return True

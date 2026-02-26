@@ -1,0 +1,11 @@
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+
+# Keep Cloud Build uploads small and deterministic for this service.
+agent-orchestrator/
+data/*
+
+# Required by Dockerfile COPY step.
+!data/rag_index.sqlite

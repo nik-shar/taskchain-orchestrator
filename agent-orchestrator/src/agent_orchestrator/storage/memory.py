@@ -20,11 +20,12 @@ class InMemoryTaskStorage:
     def migrate(self) -> None:
         return None
 
-    def create_task(self, prompt: str) -> TaskRecord:
+    def create_task(self, prompt: str, context: dict[str, str] | None = None) -> TaskRecord:
         now = datetime.now(UTC)
         record = TaskRecord(
             task_id=str(uuid4()),
             prompt=prompt,
+            context=context,
             status="created",
             output=None,
             verification=None,

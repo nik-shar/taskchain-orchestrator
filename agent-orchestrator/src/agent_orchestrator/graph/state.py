@@ -6,6 +6,7 @@ from typing import Any, TypedDict
 class AgentState(TypedDict, total=False):
     task_id: str
     user_input: str
+    task_context: dict[str, str]
     mode: str
     executor_mode: str
     plan_steps: list[dict[str, Any]]
@@ -20,6 +21,7 @@ class AgentState(TypedDict, total=False):
 def initial_state(
     task_id: str,
     user_input: str,
+    task_context: dict[str, str] | None = None,
     mode: str = "llm",
     executor_mode: str = "llm",
     retry_budget: int = 2,
@@ -27,6 +29,7 @@ def initial_state(
     return {
         "task_id": task_id,
         "user_input": user_input,
+        "task_context": dict(task_context or {}),
         "mode": mode,
         "executor_mode": executor_mode,
         "plan_steps": [],

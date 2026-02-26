@@ -103,8 +103,28 @@ def extract_action_items(payload: ExtractActionItemsInput) -> ExtractActionItems
 
 def classify_priority(payload: ClassifyPriorityInput) -> ClassifyPriorityOutput:
     text = payload.text.lower()
+    explicit_priority = _extract_explicit_priority(text)
+    if explicit_priority is not None:
+        priority, reason = explicit_priority
+        return ClassifyPriorityOutput(priority=priority, reasons=[reason])
+
+    explicit_status = _extract_explicit_status_priority(text)
+    if explicit_status is not None:
+        priority, reason = explicit_status
+        return ClassifyPriorityOutput(priority=priority, reasons=[reason])
+
     critical_terms = ["sev1", "p0", "outage", "production down", "security incident", "breach"]
-    high_terms = ["urgent", "asap", "high priority", "deadline", "exec", "blocking"]
+    high_terms = [
+        "sev2",
+        "p1",
+        "urgent",
+        "asap",
+        "high priority",
+        "major",
+        "deadline",
+        "exec",
+        "blocking",
+    ]
     medium_terms = ["important", "soon", "moderate", "follow up"]
 
     critical = [term for term in critical_terms if term in text]
@@ -118,6 +138,112 @@ def classify_priority(payload: ClassifyPriorityInput) -> ClassifyPriorityOutput:
     if medium:
         return ClassifyPriorityOutput(priority="medium", reasons=medium)
     return ClassifyPriorityOutput(priority="low", reasons=["no urgency signals detected"])
+
+
+def _extract_explicit_priority(text: str) -> tuple[str, str] | None:
+    values = _extract_labeled_values(text, labels=("priority", "severity", "sev"))
+    best_priority: str | None = None
+    best_reason: str | None = None
+    for value in values:
+        mapped = _map_priority_value(value)
+        if mapped is None:
+            continue
+        priority, matched_token = mapped
+        if best_priority is None or _priority_rank(priority) > _priority_rank(best_priority):
+            best_priority = priority
+            best_reason = f"explicit priority '{matched_token}' mapped to {priority}"
+    if best_priority is None or best_reason is None:
+        return None
+    return best_priority, best_reason
+
+
+def _extract_explicit_status_priority(text: str) -> tuple[str, str] | None:
+    values = _extract_labeled_values(text, labels=("status",))
+    for value in values:
+        mapped = _map_status_value(value)
+        if mapped is not None:
+            priority, matched_token = mapped
+            return priority, f"explicit status '{matched_token}' mapped to {priority}"
+    return None
+
+
+def _extract_labeled_values(text: str, *, labels: tuple[str, ...]) -> list[str]:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    pattern = re.compile(
+        rf"(?:^|[\n\r])\s*(?:{label_pattern})\s*[:=\-]\s*([^\n\r]+)",
+        flags=re.IGNORECASE,
+    )
+    return [match.group(1).strip() for match in pattern.finditer(text)]
+
+
+def _map_priority_value(value: str) -> tuple[str, str] | None:
+    normalized = _normalize_token(value)
+    if not normalized:
+        return None
+
+    direct_map = {
+        "critical": "critical",
+        "urgent": "critical",
+        "blocker": "critical",
+        "highest": "critical",
+        "high": "high",
+        "major": "high",
+        "medium": "medium",
+        "normal": "medium",
+        "moderate": "medium",
+        "low": "low",
+        "minor": "low",
+    }
+
+    for token, mapped in sorted(direct_map.items(), key=lambda item: len(item[0]), reverse=True):
+        if re.search(rf"\b{re.escape(token)}\b", normalized):
+            return mapped, token
+
+    code_match = re.search(r"\b(p[0-4]|sev[0-4])\b", normalized)
+    if not code_match:
+        return None
+    token = code_match.group(1)
+    code_map = {
+        "p0": "critical",
+        "p1": "high",
+        "p2": "medium",
+        "p3": "low",
+        "p4": "low",
+        "sev0": "critical",
+        "sev1": "critical",
+        "sev2": "high",
+        "sev3": "medium",
+        "sev4": "low",
+    }
+    mapped = code_map.get(token)
+    if mapped is None:
+        return None
+    return mapped, token
+
+
+def _map_status_value(value: str) -> tuple[str, str] | None:
+    normalized = _normalize_token(value)
+    status_map = {
+        "long term backlog": "low",
+        "backlog": "low",
+        "deferred": "low",
+        "triage": "medium",
+        "investigating": "medium",
+        "in progress": "medium",
+        "blocked": "high",
+    }
+    for token, mapped in sorted(status_map.items(), key=lambda item: len(item[0]), reverse=True):
+        if re.search(rf"\b{re.escape(token)}\b", normalized):
+            return mapped, token
+    return None
+
+
+def _normalize_token(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _priority_rank(priority: str) -> int:
+    return {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(priority, -1)
 
 
 def search_incident_knowledge(

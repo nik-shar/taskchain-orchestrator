@@ -66,11 +66,13 @@ source venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
 
-3. Set required environment variables.
+3. Create a local `.env` from the example and set values.
 
 ```bash
-export ORCHESTRATOR_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/orchestrator"
+cp .env.example .env
 ```
+
+Then edit `.env` (at minimum `ORCHESTRATOR_DATABASE_URL`).
 
 4. Run the API.
 
@@ -79,6 +81,70 @@ make run
 ```
 
 Service starts at `http://127.0.0.1:8000`.
+
+## Run container locally (Cloud Run parity)
+
+Use this flow to validate the container startup path before deploying to Cloud Run.
+
+1. Start PostgreSQL in Docker.
+
+```bash
+docker network create taskchain-net || true
+
+docker run --name orchestrator-postgres \
+  --network taskchain-net \
+  -e POSTGRES_USER=orchestrator \
+  -e POSTGRES_PASSWORD=orchestrator \
+  -e POSTGRES_DB=orchestrator_db \
+  -p 5432:5432 \
+  -d postgres:16
+```
+
+2. Ensure local RAG index file exists for Docker build context.
+
+```bash
+mkdir -p data
+test -f data/rag_index.sqlite || touch data/rag_index.sqlite
+```
+
+3. Build the app image.
+
+```bash
+docker build -t taskchain-orchestrator:local .
+```
+
+4. Run the app container on port `8080` (mapped to host `8000`).
+
+```bash
+docker run --name taskchain-orchestrator \
+  --network taskchain-net \
+  -p 8000:8080 \
+  -e ORCHESTRATOR_DATABASE_URL='postgresql://orchestrator:orchestrator@orchestrator-postgres:5432/orchestrator_db' \
+  -e ORCHESTRATOR_PLANNER_MODE=deterministic \
+  -e ORCHESTRATOR_EXECUTOR_MODE=deterministic \
+  taskchain-orchestrator:local
+```
+
+5. Smoke test from another terminal.
+
+```bash
+curl -sS http://127.0.0.1:8000/health
+curl -sS http://127.0.0.1:8000/tools
+```
+
+6. Optional cleanup.
+
+```bash
+docker stop taskchain-orchestrator orchestrator-postgres
+docker rm taskchain-orchestrator orchestrator-postgres
+docker network rm taskchain-net
+```
+
+Notes:
+- If the container exits immediately, inspect logs with:
+  `docker logs taskchain-orchestrator`
+- If you need company mock tools (`jira_search_tickets`, `metrics_query`, `logs_search`), set
+  `COMPANY_JIRA_BASE_URL`, `COMPANY_METRICS_BASE_URL`, and `COMPANY_LOGS_BASE_URL` to reachable URLs.
 
 ## API endpoints
 
@@ -163,6 +229,7 @@ Timeouts and retries:
 - `ORCHESTRATOR_TOOL_TIMEOUT_S`
 - `ORCHESTRATOR_TOOL_MAX_RETRIES`
 - `ORCHESTRATOR_TOOL_BACKOFF_S`
+- `ORCHESTRATOR_EXECUTOR_FAIL_FAST` (`1` stops execution after first tool failure)
 
 Retrieval and company data:
 
@@ -175,7 +242,7 @@ Retrieval and company data:
 
 - Phase 1: complete (local + Docker vertical slice, API/UI, PostgreSQL task persistence).
 - Phase 2: complete (optional OpenAI-backed planner/tool paths with deterministic fallback).
-- Phase 3: in progress (expanded toolset, stronger verification, reliability hardening, observability).
+- Phase 3: complete (expanded toolset, stronger verification, reliability hardening, observability).
 - Phase 4: planned (Cloud Run deployment + managed Postgres/Cloud SQL).
 
 ## License

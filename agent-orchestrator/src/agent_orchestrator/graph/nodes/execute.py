@@ -30,6 +30,7 @@ def run(state: AgentState) -> AgentState:
     )
 
     user_input = state.get("user_input", "")
+    task_context = state.get("task_context", {})
     plan_steps = state.get("plan_steps", [])
     tool_results = dict(state.get("tool_results", {}))
     telemetry = dict(state.get("telemetry", {}))
@@ -56,6 +57,7 @@ def run(state: AgentState) -> AgentState:
             tool_name=tool_name,
             step_args=args if isinstance(args, dict) else None,
             user_input=user_input,
+            task_context=task_context if isinstance(task_context, dict) else {},
             tool_results=tool_results,
         )
 
@@ -104,12 +106,13 @@ def _resolve_step_args(
     tool_name: str,
     step_args: dict[str, Any] | None,
     user_input: str,
+    task_context: dict[str, Any] | None,
     tool_results: dict[str, Any],
 ) -> dict[str, Any]:
     args = (
         dict(step_args)
         if isinstance(step_args, dict)
-        else default_args_for_tool(tool_name, user_input=user_input)
+        else default_args_for_tool(tool_name, user_input=user_input, context=task_context)
     )
     if tool_name != "build_incident_brief":
         return args

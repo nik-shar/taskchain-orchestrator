@@ -20,13 +20,18 @@ TOOL_ARG_KEYS: dict[str, set[str]] = {
 def run(state: AgentState) -> AgentState:
     settings = get_settings()
     user_input = state.get("user_input", "")
+    task_context = state.get("task_context", {})
     telemetry = dict(state.get("telemetry", {}))
     requested_mode = str(state.get("mode", "deterministic")).lower()
 
     if requested_mode == "llm":
         try:
             plan_steps = _build_llm_plan(user_input, settings=settings)
-            plan_steps = _enforce_minimum_plan_shape(plan_steps, user_input=user_input)
+            plan_steps = _enforce_minimum_plan_shape(
+                plan_steps,
+                user_input=user_input,
+                task_context=task_context if isinstance(task_context, dict) else {},
+            )
             telemetry["planner"] = {
                 "requested_mode": "llm",
                 "effective_mode": "llm",
@@ -35,7 +40,9 @@ def run(state: AgentState) -> AgentState:
                 "model": settings.llm_model,
             }
         except Exception as exc:  # noqa: BLE001
-            plan_steps = _build_deterministic_plan(user_input)
+            plan_steps = _build_deterministic_plan(
+                user_input, task_context=task_context if isinstance(task_context, dict) else {}
+            )
             telemetry["planner"] = {
                 "requested_mode": "llm",
                 "effective_mode": "deterministic",
@@ -48,7 +55,9 @@ def run(state: AgentState) -> AgentState:
                 "telemetry": telemetry,
             }
     else:
-        plan_steps = _build_deterministic_plan(user_input)
+        plan_steps = _build_deterministic_plan(
+            user_input, task_context=task_context if isinstance(task_context, dict) else {}
+        )
         telemetry["planner"] = {
             "requested_mode": requested_mode,
             "effective_mode": "deterministic",
@@ -58,14 +67,18 @@ def run(state: AgentState) -> AgentState:
     return {"plan_steps": plan_steps, "telemetry": telemetry}
 
 
-def _build_deterministic_plan(user_input: str) -> list[dict[str, Any]]:
+def _build_deterministic_plan(
+    user_input: str,
+    *,
+    task_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     plan_steps: list[dict[str, Any]] = [
         {"id": "analyze_request", "tool": "summarize", "status": "pending"},
         {"id": "extract_entities", "tool": "extract_entities", "status": "pending"},
         {"id": "classify_priority", "tool": "classify_priority", "status": "pending"},
     ]
 
-    if any(hint in user_input.lower() for hint in INCIDENT_HINTS):
+    if _is_incident_request(user_input, task_context=task_context):
         plan_steps.extend(
             [
                 {
@@ -108,6 +121,7 @@ def _enforce_minimum_plan_shape(
     plan_steps: list[dict[str, Any]],
     *,
     user_input: str,
+    task_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for idx, raw in enumerate(plan_steps):
@@ -116,7 +130,12 @@ def _enforce_minimum_plan_shape(
         tool_name = raw.get("tool")
         if not isinstance(tool_name, str) or not tool_name:
             continue
-        args = _normalize_tool_args(tool_name, raw.get("args"), user_input=user_input)
+        args = _normalize_tool_args(
+            tool_name,
+            raw.get("args"),
+            user_input=user_input,
+            task_context=task_context,
+        )
         normalized.append(
             {
                 "id": raw.get("id") or f"llm_step_{idx + 1}",
@@ -135,11 +154,16 @@ def _enforce_minimum_plan_shape(
                     "id": f"auto_{tool_name}",
                     "tool": tool_name,
                     "status": "pending",
-                    "args": _normalize_tool_args(tool_name, None, user_input=user_input),
+                    "args": _normalize_tool_args(
+                        tool_name,
+                        None,
+                        user_input=user_input,
+                        task_context=task_context,
+                    ),
                 }
             )
 
-    if any(hint in user_input.lower() for hint in INCIDENT_HINTS):
+    if _is_incident_request(user_input, task_context=task_context):
         for tool_name in INCIDENT_TOOLS:
             if tool_name not in existing_tools:
                 normalized.append(
@@ -147,18 +171,26 @@ def _enforce_minimum_plan_shape(
                         "id": f"auto_{tool_name}",
                         "tool": tool_name,
                         "status": "pending",
-                        "args": _normalize_tool_args(tool_name, None, user_input=user_input),
+                        "args": _normalize_tool_args(
+                            tool_name,
+                            None,
+                            user_input=user_input,
+                            task_context=task_context,
+                        ),
                     }
                 )
 
     summarize_steps = [step for step in normalized if step.get("tool") == "summarize"]
     other_steps = [step for step in normalized if step.get("tool") != "summarize"]
-    if any(hint in user_input.lower() for hint in INCIDENT_HINTS):
+    if _is_incident_request(user_input, task_context=task_context):
         other_steps = _ensure_incident_brief_after_retrieval(other_steps)
     if summarize_steps:
         final_summarize = summarize_steps[-1]
         final_args = _normalize_tool_args(
-            "summarize", final_summarize.get("args"), user_input=user_input
+            "summarize",
+            final_summarize.get("args"),
+            user_input=user_input,
+            task_context=task_context,
         )
         final_args["text"] = user_input
         final_summarize["args"] = final_args
@@ -167,7 +199,12 @@ def _enforce_minimum_plan_shape(
             "id": "auto_summarize",
             "tool": "summarize",
             "status": "pending",
-            "args": _normalize_tool_args("summarize", None, user_input=user_input),
+            "args": _normalize_tool_args(
+                "summarize",
+                None,
+                user_input=user_input,
+                task_context=task_context,
+            ),
         }
 
     return other_steps + [final_summarize]
@@ -202,11 +239,23 @@ def _normalize_tool_args(
     raw_args: dict[str, Any] | None,
     *,
     user_input: str,
+    task_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    defaults = default_args_for_tool(tool_name, user_input=user_input)
+    defaults = default_args_for_tool(tool_name, user_input=user_input, context=task_context)
     incoming = raw_args if isinstance(raw_args, dict) else {}
     merged = {**defaults, **incoming}
     allowed_keys = TOOL_ARG_KEYS.get(tool_name)
     if not allowed_keys:
         return merged
     return {key: value for key, value in merged.items() if key in allowed_keys}
+
+
+def _is_incident_request(user_input: str, *, task_context: dict[str, Any] | None = None) -> bool:
+    lowered = user_input.lower()
+    if any(hint in lowered for hint in INCIDENT_HINTS):
+        return True
+
+    context = task_context if isinstance(task_context, dict) else {}
+    severity = str(context.get("severity", "")).lower().strip()
+    priority = str(context.get("priority", "")).lower().strip()
+    return bool(severity or priority.startswith("p"))

@@ -26,6 +26,45 @@ from .models import Plan, Step, ToolCall
 
 logger = logging.getLogger(__name__)
 
+TOOL_ALLOWED_ARGS: dict[str, set[str]] = {
+    "extract_entities": {"text"},
+    "extract_deadlines": {"text"},
+    "extract_action_items": {"text"},
+    "extract_risks": {"text"},
+    "classify_priority": {"text"},
+    "summarize": {"text", "max_words"},
+    "fetch_company_reference": {"source", "query", "max_chars"},
+    "jira_search_tickets": {"project_key", "status", "severity", "text"},
+    "metrics_query": {"service", "start_time", "end_time"},
+    "logs_search": {"service", "start_time", "end_time", "pattern"},
+    "search_incident_knowledge": {
+        "query",
+        "service",
+        "severity",
+        "time_start",
+        "time_end",
+        "top_k",
+        "max_snippet_chars",
+    },
+    "search_previous_issues": {
+        "query",
+        "top_k",
+        "source",
+        "collection",
+        "issue_type",
+        "priority",
+        "project",
+        "incident_state",
+        "created_from",
+        "created_to",
+        "opened_from",
+        "opened_to",
+        "max_snippet_chars",
+        "index_path",
+        "use_llm_rerank",
+    },
+}
+
 
 def build_plan(task_text: str, *, context: dict[str, object] | None = None) -> Plan:
     """Build a deterministic plan from task text and optional context.
@@ -61,6 +100,14 @@ def build_plan(task_text: str, *, context: dict[str, object] | None = None) -> P
             tool_calls=[ToolCall(tool="classify_priority", args={"text": task_text})],
         ),
     ]
+    if _is_risk_like(task_text):
+        steps.append(
+            Step(
+                step_id="extract_risks",
+                description="Extract explicit risk statements and impact signals.",
+                tool_calls=[ToolCall(tool="extract_risks", args={"text": task_text})],
+            )
+        )
 
     # For issue/incident-like text, add historical retrieval via local RAG.
     if _is_issue_or_incident_like(task_text):
@@ -178,7 +225,7 @@ class LLMPlanner:
             "You are a strict planning module for an orchestration API. "
             "Return JSON only. Build a short plan with three to six steps. "
             "Use only tools named 'extract_entities', 'extract_deadlines', "
-            "'extract_action_items', 'classify_priority', 'summarize', "
+            "'extract_action_items', 'extract_risks', 'classify_priority', 'summarize', "
             "'fetch_company_reference', 'jira_search_tickets', 'metrics_query', "
             "'logs_search', 'search_incident_knowledge', and 'search_previous_issues'. "
             "If policy/config evidence is needed, use fetch_company_reference with source in "
@@ -214,6 +261,7 @@ class LLMPlanner:
             "extract_entities",
             "extract_deadlines",
             "extract_action_items",
+            "extract_risks",
             "classify_priority",
             "summarize",
             "fetch_company_reference",
@@ -248,6 +296,15 @@ class LLMPlanner:
                 # Copy to avoid mutating dict while reading it.
                 args = dict(tool_call.args)
 
+                if tool_call.tool in {
+                    "extract_entities",
+                    "extract_deadlines",
+                    "extract_action_items",
+                    "extract_risks",
+                    "classify_priority",
+                }:
+                    args.setdefault("text", task_text)
+
                 if tool_call.tool == "summarize":
                     # LLM planner frequently omits summarize text; default to original task.
                     # setdefault() keeps existing model-provided values if present.
@@ -260,6 +317,8 @@ class LLMPlanner:
                         value = context_values.get(key)
                         if key not in args and isinstance(value, str):
                             args[key] = value
+                if tool_call.tool == "logs_search":
+                    args.setdefault("pattern", "")
 
                 if tool_call.tool == "jira_search_tickets":
                     # Time window fields are not supported by jira_search_tickets input schema.
@@ -301,6 +360,12 @@ class LLMPlanner:
                     if "project" not in args and not incident_like and isinstance(project_key, str):
                         args["project"] = project_key
 
+                if tool_call.tool == "fetch_company_reference":
+                    args.setdefault("source", "policy_v2")
+                    args.setdefault("query", task_text)
+                    args.setdefault("max_chars", 1200)
+
+                args = _sanitize_tool_args(tool_call.tool, args)
                 tool_call.args = args
         return plan
 
@@ -379,6 +444,29 @@ def _is_issue_or_incident_like(task_text: str) -> bool:
         "root cause",
     )
     return any(signal in lowered for signal in signals)
+
+
+def _is_risk_like(task_text: str) -> bool:
+    """Detect language that usually benefits from explicit risk extraction."""
+    lowered = task_text.lower()
+    signals = (
+        "risk",
+        "risks",
+        "blocker",
+        "dependency",
+        "mitigation",
+        "failure mode",
+        "impact",
+    )
+    return any(signal in lowered for signal in signals)
+
+
+def _sanitize_tool_args(tool_name: str, args: dict[str, object]) -> dict[str, object]:
+    """Drop unsupported args to reduce LLM-plan validation failures in executor."""
+    allowed = TOOL_ALLOWED_ARGS.get(tool_name)
+    if not allowed:
+        return args
+    return {key: value for key, value in args.items() if key in allowed}
 
 
 def _trace_enabled() -> bool:

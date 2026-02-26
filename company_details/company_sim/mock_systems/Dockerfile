@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY company_sim /app/company_sim
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    APP_MODULE=company_sim.mock_systems.jira_api:app
 
-CMD ["uvicorn", "company_sim.mock_systems.jira_api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn ${APP_MODULE} --host 0.0.0.0 --port ${PORT}"]

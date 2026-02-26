@@ -61,6 +61,18 @@ def test_deterministic_planner_non_incident_path_unchanged() -> None:
     ]
 
 
+def test_deterministic_planner_adds_risk_step_when_risk_language_present() -> None:
+    planner = Planner(mode="deterministic", llm_adapter=None, timeout_s=2.0)
+    plan = planner.build_plan(
+        "Prepare release update and include key risks, blockers, and mitigations."
+    )
+
+    step_ids = [step.step_id for step in plan.steps]
+    assert "extract_risks" in step_ids
+    risk_step = next(step for step in plan.steps if step.step_id == "extract_risks")
+    assert risk_step.tool_calls[0].tool == "extract_risks"
+
+
 def test_llm_planner_accepts_search_incident_knowledge() -> None:
     class SearchToolAdapter:
         def generate_structured(self, **kwargs):
@@ -127,3 +139,33 @@ def test_deterministic_planner_issue_path_adds_previous_issue_search() -> None:
     assert rag_call.tool == "search_previous_issues"
     assert rag_call.args["source"] == "jira"
     assert rag_call.args["project"] == "WLC"
+
+
+def test_llm_planner_sanitizes_unsupported_tool_args() -> None:
+    class SanitizingAdapter:
+        def generate_structured(self, **kwargs):
+            response_model = kwargs["response_model"]
+            if response_model is Plan:
+                return Plan(
+                    steps=[
+                        Step(
+                            step_id="summarize",
+                            description="Summarize findings",
+                            tool_calls=[
+                                ToolCall(
+                                    tool="summarize",
+                                    args={"text": "hello", "max_words": 80, "unknown": "x"},
+                                )
+                            ],
+                        ),
+                    ]
+                )
+            raise AssertionError("Unexpected response model")
+
+    planner = Planner(mode="llm", llm_adapter=SanitizingAdapter(), timeout_s=2.0)
+    plan = planner.build_plan("Summarize this task.")
+
+    summarize_args = plan.steps[0].tool_calls[0].args
+    assert summarize_args["text"] == "hello"
+    assert summarize_args["max_words"] == 80
+    assert "unknown" not in summarize_args

@@ -76,3 +76,41 @@ def test_task_run_latest_endpoint_returns_pipeline_artifacts() -> None:
     assert isinstance(latest.get("plan_json"), list)
     assert isinstance(latest.get("tool_results_json"), dict)
     assert isinstance(latest.get("verification_json"), dict)
+
+
+def test_task_context_roundtrip_and_state_includes_context() -> None:
+    app = create_app(
+        storage=InMemoryTaskStorage(),
+        settings_override=Settings(
+            planner_mode="deterministic",
+            executor_mode="deterministic",
+        ),
+    )
+    client = TestClient(app)
+
+    create_resp = client.post(
+        "/tasks",
+        json={
+            "prompt": "Investigate customer impact in image upload flow",
+            "context": {
+                "service": "profile-media-api",
+                "priority": "Major",
+                "severity": "SEV2",
+                "status": "Long Term Backlog",
+            },
+        },
+    )
+    assert create_resp.status_code == 200
+    task_id = create_resp.json()["task_id"]
+
+    run_resp = client.post(f"/tasks/{task_id}/run")
+    assert run_resp.status_code == 200
+
+    latest_resp = client.get(f"/tasks/{task_id}/runs/latest")
+    assert latest_resp.status_code == 200
+    latest = latest_resp.json()
+    state = latest["state_json"]
+    assert state["task_context"]["service"] == "profile-media-api"
+    assert state["task_context"]["priority"] == "Major"
+    assert state["task_context"]["severity"] == "SEV2"
+    assert state["task_context"]["status"] == "Long Term Backlog"

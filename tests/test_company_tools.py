@@ -18,6 +18,7 @@ from orchestrator_api.app.company_tools import (
 from orchestrator_api.app.models import Plan, Step, ToolCall
 from orchestrator_api.app.planner import Planner
 from orchestrator_api.app.rag_sqlite import build_rag_sqlite_index
+from orchestrator_api.app.retrieval import RetrievalHit, RetrievalResult
 
 
 class _FakeHTTPResponse:
@@ -158,6 +159,61 @@ def test_search_incident_knowledge_respects_top_k() -> None:
 
     assert output.total == 1
     assert len(output.hits) == 1
+
+
+def test_search_incident_knowledge_relaxes_filters_when_strict_search_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_retrieval_search_incident_knowledge(**kwargs):
+        calls.append(dict(kwargs))
+        if kwargs.get("time_start") is not None or kwargs.get("time_end") is not None:
+            return RetrievalResult(
+                hits=[],
+                confidence="low",
+                recommend_fallback=True,
+                fallback_reason="No relevant incident evidence found.",
+            )
+        return RetrievalResult(
+            hits=[
+                RetrievalHit(
+                    chunk_id="jira:OPS-101:0",
+                    source_type="jira_ticket",
+                    source_id="OPS-101",
+                    text="Ticket OPS-101 summary includes escalation guidance.",
+                    metadata={"service": "saas-api", "severity": "P1"},
+                    score=0.41,
+                )
+            ],
+            confidence="medium",
+            recommend_fallback=False,
+            fallback_reason=None,
+        )
+
+    monkeypatch.setattr(
+        company_tools,
+        "retrieval_search_incident_knowledge",
+        fake_retrieval_search_incident_knowledge,
+    )
+
+    output = search_incident_knowledge(
+        SearchIncidentKnowledgeInput(
+            query="P1 alert escalation guidance",
+            service="saas-api",
+            severity="P1",
+            time_start="2026-02-14T10:00:00Z",
+            time_end="2026-02-14T10:30:00Z",
+            top_k=3,
+        )
+    )
+
+    assert output.total == 1
+    assert output.hits[0].citation_id == "jira:OPS-101:0"
+    assert len(calls) == 2
+    assert calls[0]["time_start"] == "2026-02-14T10:00:00Z"
+    assert calls[1]["time_start"] is None
+    assert calls[1]["time_end"] is None
 
 
 def test_search_previous_issues_returns_hits_from_local_rag_index(

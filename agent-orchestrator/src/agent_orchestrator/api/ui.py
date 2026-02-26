@@ -99,6 +99,15 @@ def render_homepage(*, app_name: str) -> str:
       background: #fff;
     }}
     textarea {{ min-height: 130px; resize: vertical; }}
+    .context-grid {{
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr 1fr;
+      margin: 10px 0 2px;
+    }}
+    @media (max-width: 900px) {{
+      .context-grid {{ grid-template-columns: 1fr; }}
+    }}
     .actions {{
       display: flex;
       gap: 10px;
@@ -275,6 +284,24 @@ def render_homepage(*, app_name: str) -> str:
         <div>
           <label for="taskIdInput">Task ID</label>
           <input id="taskIdInput" placeholder="auto-filled after create">
+          <div class="context-grid">
+            <div>
+              <label for="serviceInput">Service</label>
+              <input id="serviceInput" placeholder="checkout-api">
+            </div>
+            <div>
+              <label for="priorityInput">Priority</label>
+              <input id="priorityInput" placeholder="Major / P1 / High">
+            </div>
+            <div>
+              <label for="severityInput">Severity</label>
+              <input id="severityInput" placeholder="SEV2">
+            </div>
+            <div>
+              <label for="statusInput">Status</label>
+              <input id="statusInput" placeholder="Long Term Backlog">
+            </div>
+          </div>
           <div class="actions">
             <button id="createBtn">Create</button>
             <button id="runBtn">Run</button>
@@ -312,6 +339,10 @@ def render_homepage(*, app_name: str) -> str:
   <script>
     const promptInput = document.getElementById("promptInput");
     const taskIdInput = document.getElementById("taskIdInput");
+    const serviceInput = document.getElementById("serviceInput");
+    const priorityInput = document.getElementById("priorityInput");
+    const severityInput = document.getElementById("severityInput");
+    const statusInput = document.getElementById("statusInput");
     const statusText = document.getElementById("statusText");
     const timeline = document.getElementById("timeline");
     const summaryGrid = document.getElementById("summaryGrid");
@@ -344,6 +375,20 @@ def render_homepage(*, app_name: str) -> str:
       box.className = "metric";
       box.innerHTML = `<div class="k">${{key}}</div><div class="v">${{value}}</div>`;
       summaryGrid.appendChild(box);
+    }}
+
+    function taskContextPayload() {{
+      const fields = {{
+        service: serviceInput.value.trim(),
+        priority: priorityInput.value.trim(),
+        severity: severityInput.value.trim(),
+        status: statusInput.value.trim(),
+      }};
+      const context = {{}};
+      for (const [key, value] of Object.entries(fields)) {{
+        if (value) context[key] = value;
+      }}
+      return Object.keys(context).length ? context : null;
     }}
 
     async function sendJson(url, method, body) {{
@@ -488,6 +533,14 @@ def render_homepage(*, app_name: str) -> str:
       addMetric("Task Status", task.status || "unknown");
       addMetric("Verification", passed);
       addMetric("Planner/Executor", `${{plannerMode}} / ${{executorMode}}`);
+      const context = task.context && typeof task.context === "object" ? task.context : null;
+      if (context) {{
+        const labels = [];
+        for (const key of ["service", "priority", "severity", "status"]) {{
+          if (context[key]) labels.push(`${{key}}=${{context[key]}}`);
+        }}
+        if (labels.length) addMetric("Context", labels.join(" | "));
+      }}
 
       const plan = Array.isArray(run.plan_json) ? run.plan_json : [];
       const toolResults = (run.tool_results_json && typeof run.tool_results_json === "object")
@@ -543,7 +596,10 @@ def render_homepage(*, app_name: str) -> str:
       try {{
         resetViews();
         setStatus("Creating task...");
-        const task = await sendJson("/tasks", "POST", {{ prompt: promptInput.value.trim() }});
+        const payload = {{ prompt: promptInput.value.trim() }};
+        const context = taskContextPayload();
+        if (context) payload.context = context;
+        const task = await sendJson("/tasks", "POST", payload);
         taskIdInput.value = task.task_id;
         setStatus("Task created. You can run it now.", "ok");
       }} catch (err) {{
@@ -575,6 +631,11 @@ def render_homepage(*, app_name: str) -> str:
 
     document.getElementById("clearBtn").addEventListener("click", () => {{
       resetViews();
+      taskIdInput.value = "";
+      serviceInput.value = "";
+      priorityInput.value = "";
+      severityInput.value = "";
+      statusInput.value = "";
       setStatus("Cleared.");
     }});
   </script>

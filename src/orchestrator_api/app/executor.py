@@ -5,9 +5,11 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .company_tools import (
     FetchCompanyReferenceInput,
@@ -68,6 +70,14 @@ class ExtractActionItemsInput(StrictModel):
 
 class ExtractActionItemsOutput(StrictModel):
     action_items: list[str]
+
+
+class ExtractRisksInput(StrictModel):
+    text: str
+
+
+class ExtractRisksOutput(StrictModel):
+    risks: list[str]
 
 
 PriorityValue = Literal["low", "medium", "high", "critical"]
@@ -185,6 +195,34 @@ def classify_priority(payload: ClassifyPriorityInput) -> ClassifyPriorityOutput:
     return ClassifyPriorityOutput(priority="low", reasons=["no urgency signals detected"])
 
 
+def extract_risks(payload: ExtractRisksInput) -> ExtractRisksOutput:
+    risk_markers = {
+        "risk",
+        "risks",
+        "blocker",
+        "dependency",
+        "mitigation",
+        "failure",
+        "degradation",
+        "outage",
+        "regression",
+        "impact",
+    }
+    candidates: list[str] = []
+    for raw_line in re.split(r"[\n.;]", payload.text):
+        line = raw_line.strip(" -*\t")
+        if not line:
+            continue
+        lowered = line.lower()
+        if any(marker in lowered for marker in risk_markers):
+            candidates.append(line)
+    if not candidates and "risk" in payload.text.lower():
+        first_sentence = payload.text.split(".")[0].strip()
+        if first_sentence:
+            candidates.append(first_sentence)
+    return ExtractRisksOutput(risks=_dedupe_normalized(candidates)[:10])
+
+
 DETERMINISTIC_TOOL_REGISTRY: dict[str, ToolSpec] = {
     "extract_entities": ToolSpec(
         input_model=ExtractEntitiesInput,
@@ -205,6 +243,11 @@ DETERMINISTIC_TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=ClassifyPriorityInput,
         output_model=ClassifyPriorityOutput,
         fn=classify_priority,
+    ),
+    "extract_risks": ToolSpec(
+        input_model=ExtractRisksInput,
+        output_model=ExtractRisksOutput,
+        fn=extract_risks,
     ),
     "summarize": ToolSpec(
         input_model=SummarizeInput,
@@ -314,6 +357,18 @@ class LLMToolRunner:
             timeout_s=self.timeout_s,
         )
 
+    def extract_risks(self, payload: ExtractRisksInput) -> ExtractRisksOutput:
+        system_prompt = (
+            "Extract explicit risks and impact statements from the input. "
+            "Return JSON only with key 'risks' as short strings."
+        )
+        return self.llm_adapter.generate_structured(
+            system_prompt=system_prompt,
+            user_prompt=payload.text,
+            response_model=ExtractRisksOutput,
+            timeout_s=self.timeout_s,
+        )
+
 
 def build_tool_registry(
     *, llm_adapter: LLMAdapter | None = None, llm_timeout_s: float = 8.0
@@ -342,6 +397,11 @@ def build_tool_registry(
             input_model=ClassifyPriorityInput,
             output_model=ClassifyPriorityOutput,
             fn=llm_runner.classify_priority,
+        ),
+        "extract_risks": ToolSpec(
+            input_model=ExtractRisksInput,
+            output_model=ExtractRisksOutput,
+            fn=llm_runner.extract_risks,
         ),
         "summarize": ToolSpec(
             input_model=SummarizeInput,
@@ -404,68 +464,128 @@ class Executor:
         registry: dict[str, ToolSpec] | None = None,
         tool_timeout_s: float = 2.0,
         retry_policy: dict[str, float | int] | None = None,
+        fail_fast: bool = False,
     ) -> None:
         self.registry = registry or build_tool_registry()
         self.tool_timeout_s = tool_timeout_s
         retry_policy = retry_policy or {}
         self.max_retries = int(retry_policy.get("max_retries", 0))
         self.backoff_s = float(retry_policy.get("backoff_s", 0.0))
+        self.fail_fast = fail_fast
 
     def execute_plan(self, plan: Plan) -> dict[str, Any]:
+        run_started_at = _utc_now_iso()
+        run_started_perf = time.perf_counter()
+        run_id = str(uuid4())
         step_results: list[dict[str, Any]] = []
         total_tools = 0
         total_duration_ms = 0.0
         error_count = 0
+        total_retries = 0
+        stopped_early = False
         for step in plan.steps:
+            step_started_at = _utc_now_iso()
+            step_started_perf = time.perf_counter()
             tool_results: list[dict[str, Any]] = []
             for tool_call in step.tool_calls:
                 result = self._execute_with_retry(tool_call.tool, tool_call.args)
                 tool_results.append(result)
                 total_tools += 1
                 total_duration_ms += float(result.get("duration_ms", 0.0))
+                total_retries += max(int(result.get("attempts", 1)) - 1, 0)
                 if result.get("status") != "ok":
                     error_count += 1
+                    if self.fail_fast:
+                        stopped_early = True
+                        break
+            step_duration_ms = _duration_ms(step_started_perf)
+            step_error_count = sum(1 for item in tool_results if item.get("status") != "ok")
             step_results.append(
                 {
                     "step_id": step.step_id,
                     "description": step.description,
                     "tool_results": tool_results,
+                    "step_metadata": {
+                        "started_at_utc": step_started_at,
+                        "finished_at_utc": _utc_now_iso(),
+                        "duration_ms": step_duration_ms,
+                        "total_tools": len(tool_results),
+                        "error_count": step_error_count,
+                    },
                 }
             )
+            if stopped_early:
+                break
+        run_duration_ms = _duration_ms(run_started_perf)
         return {
             "steps": step_results,
             "execution_metadata": {
+                "run_id": run_id,
+                "started_at_utc": run_started_at,
+                "finished_at_utc": _utc_now_iso(),
+                "wall_clock_duration_ms": run_duration_ms,
                 "total_tools": total_tools,
                 "total_duration_ms": round(total_duration_ms, 2),
                 "error_count": error_count,
+                "total_retries": total_retries,
+                "stopped_early": stopped_early,
             },
         }
 
     def _execute_with_retry(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         started_at = time.perf_counter()
+        started_at_iso = _utc_now_iso()
         final_error: str = "unknown error"
         attempts = 0
+        repaired_args = False
+        effective_args = dict(args)
         for attempt in range(self.max_retries + 1):
             attempts = attempt + 1
             try:
-                output = self._execute_once(tool_name, args)
+                output = self._execute_once(tool_name, effective_args)
                 return {
                     "tool": tool_name,
                     "status": "ok",
                     "output": output,
                     "attempts": attempts,
                     "duration_ms": _duration_ms(started_at),
+                    "started_at_utc": started_at_iso,
+                    "finished_at_utc": _utc_now_iso(),
+                    "args_repaired": repaired_args,
                 }
+            except ValidationError as exc:
+                final_error = str(exc)
+                candidate_args = self._repair_tool_args(tool_name, original_args=args)
+                if candidate_args != effective_args:
+                    repaired_args = True
+                    effective_args = candidate_args
+                    try:
+                        output = self._execute_once(tool_name, effective_args)
+                        return {
+                            "tool": tool_name,
+                            "status": "ok",
+                            "output": output,
+                            "attempts": attempts,
+                            "duration_ms": _duration_ms(started_at),
+                            "started_at_utc": started_at_iso,
+                            "finished_at_utc": _utc_now_iso(),
+                            "args_repaired": repaired_args,
+                        }
+                    except Exception as repaired_exc:  # noqa: BLE001
+                        final_error = str(repaired_exc)
             except Exception as exc:  # noqa: BLE001
                 final_error = str(exc)
-                if attempt < self.max_retries and self.backoff_s > 0:
-                    time.sleep(self.backoff_s)
+            if attempt < self.max_retries and self.backoff_s > 0:
+                time.sleep(self.backoff_s)
         return {
             "tool": tool_name,
             "status": "error",
             "error": final_error,
             "attempts": attempts,
             "duration_ms": _duration_ms(started_at),
+            "started_at_utc": started_at_iso,
+            "finished_at_utc": _utc_now_iso(),
+            "args_repaired": repaired_args,
         }
 
     def _execute_once(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -486,6 +606,54 @@ class Executor:
         validated_output = spec.output_model.model_validate(raw_output)
         return validated_output.model_dump()
 
+    def _repair_tool_args(self, tool_name: str, *, original_args: dict[str, Any]) -> dict[str, Any]:
+        """Repair common LLM/tool-call arg mismatches before giving up."""
+        spec = self.registry.get(tool_name)
+        if spec is None:
+            return dict(original_args)
+
+        repaired = dict(original_args)
+        allowed_fields = set(spec.input_model.model_fields.keys())
+        repaired = {key: value for key, value in repaired.items() if key in allowed_fields}
+
+        if tool_name in {
+            "extract_entities",
+            "extract_deadlines",
+            "extract_action_items",
+            "extract_risks",
+            "classify_priority",
+            "summarize",
+        }:
+            if "text" not in repaired:
+                for fallback_key in ("query", "task", "input", "content"):
+                    fallback = original_args.get(fallback_key)
+                    if isinstance(fallback, str) and fallback.strip():
+                        repaired["text"] = fallback
+                        break
+        if tool_name == "summarize":
+            repaired.setdefault("max_words", 50)
+
+        if tool_name in {"search_incident_knowledge", "search_previous_issues"}:
+            if "query" not in repaired:
+                text = original_args.get("text")
+                if isinstance(text, str) and text.strip():
+                    repaired["query"] = text
+
+        if tool_name == "logs_search":
+            repaired.setdefault("pattern", "")
+
+        if tool_name == "fetch_company_reference":
+            repaired.setdefault("max_chars", 1200)
+            if "source" not in repaired:
+                fallback_source = original_args.get("reference_source")
+                if isinstance(fallback_source, str) and fallback_source.strip():
+                    repaired["source"] = fallback_source.strip()
+        return repaired
+
 
 def _duration_ms(started_at: float) -> float:
     return round((time.perf_counter() - started_at) * 1000.0, 2)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(tz=UTC).isoformat()

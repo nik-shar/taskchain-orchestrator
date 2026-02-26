@@ -278,14 +278,7 @@ def logs_search(payload: LogsSearchInput) -> LogsSearchOutput:
 def search_incident_knowledge(
     payload: SearchIncidentKnowledgeInput,
 ) -> SearchIncidentKnowledgeOutput:
-    result = retrieval_search_incident_knowledge(
-        query=payload.query,
-        service=payload.service,
-        severity=payload.severity,
-        time_start=payload.time_start,
-        time_end=payload.time_end,
-        top_k=payload.top_k,
-    )
+    result = _search_incident_knowledge_with_relaxation(payload)
     hits = [
         SearchIncidentKnowledgeHit(
             chunk_id=hit.chunk_id,
@@ -306,6 +299,54 @@ def search_incident_knowledge(
         fallback_reason=result.fallback_reason,
         hits=hits,
     )
+
+
+def _search_incident_knowledge_with_relaxation(payload: SearchIncidentKnowledgeInput):
+    """Retry incident retrieval with broader filters when strict filters return zero hits."""
+
+    def _run(
+        *,
+        service: str | None,
+        severity: str | None,
+        time_start: str | None,
+        time_end: str | None,
+    ):
+        return retrieval_search_incident_knowledge(
+            query=payload.query,
+            service=service,
+            severity=severity,
+            time_start=time_start,
+            time_end=time_end,
+            top_k=payload.top_k,
+        )
+
+    result = _run(
+        service=payload.service,
+        severity=payload.severity,
+        time_start=payload.time_start,
+        time_end=payload.time_end,
+    )
+    if result.hits:
+        return result
+
+    if payload.time_start is not None or payload.time_end is not None:
+        result = _run(
+            service=payload.service,
+            severity=payload.severity,
+            time_start=None,
+            time_end=None,
+        )
+        if result.hits:
+            return result
+
+    if payload.service is not None or payload.severity is not None:
+        result = _run(
+            service=None,
+            severity=None,
+            time_start=None,
+            time_end=None,
+        )
+    return result
 
 
 def search_previous_issues(payload: SearchPreviousIssuesInput) -> SearchPreviousIssuesOutput:

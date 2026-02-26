@@ -27,6 +27,7 @@ class PostgresTaskStorage:
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id UUID PRIMARY KEY,
                     prompt TEXT NOT NULL,
+                    context_json JSONB,
                     status TEXT NOT NULL,
                     output TEXT,
                     verification_json JSONB,
@@ -71,6 +72,10 @@ class PostgresTaskStorage:
                 """)
             conn.execute("""
                 ALTER TABLE tasks
+                ADD COLUMN IF NOT EXISTS context_json JSONB
+                """)
+            conn.execute("""
+                ALTER TABLE tasks
                 ADD COLUMN IF NOT EXISTS verification_json JSONB
                 """)
             conn.execute("""
@@ -97,9 +102,10 @@ class PostgresTaskStorage:
                 """)
             conn.commit()
 
-    def create_task(self, prompt: str) -> TaskRecord:
+    def create_task(self, prompt: str, context: dict[str, str] | None = None) -> TaskRecord:
         task_id = uuid.uuid4()
         now = datetime.now(tz=UTC)
+        context_payload = self._json_wrapper(context) if context else None
         with self._lock, self._connect() as conn:
             if self._has_input_task_column(conn):
                 conn.execute(
@@ -108,6 +114,24 @@ class PostgresTaskStorage:
                         task_id,
                         prompt,
                         input_task,
+                        context_json,
+                        status,
+                        output,
+                        verification_json,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (task_id, prompt, prompt, context_payload, "created", None, None, now, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO tasks (
+                        task_id,
+                        prompt,
+                        context_json,
                         status,
                         output,
                         verification_json,
@@ -116,23 +140,7 @@ class PostgresTaskStorage:
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (task_id, prompt, prompt, "created", None, None, now, now),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO tasks (
-                        task_id,
-                        prompt,
-                        status,
-                        output,
-                        verification_json,
-                        created_at,
-                        updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (task_id, prompt, "created", None, None, now, now),
+                    (task_id, prompt, context_payload, "created", None, None, now, now),
                 )
             conn.commit()
         created = self.get_task(str(task_id))
@@ -326,6 +334,7 @@ class PostgresTaskStorage:
         return TaskRecord(
             task_id=str(row["task_id"]),
             prompt=prompt,
+            context=cls._parse_json_optional(row.get("context_json")),
             status=row["status"],
             output=row["output"],
             verification=cls._parse_json_optional(row["verification_json"]),

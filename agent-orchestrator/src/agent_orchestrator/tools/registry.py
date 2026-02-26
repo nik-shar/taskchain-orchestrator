@@ -181,20 +181,53 @@ def list_tools() -> list[str]:
     return sorted(build_registry().keys())
 
 
-def default_args_for_tool(tool_name: str, *, user_input: str) -> dict[str, Any]:
+def default_args_for_tool(
+    tool_name: str,
+    *,
+    user_input: str,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    context_payload = context if isinstance(context, dict) else {}
     if tool_name == "summarize":
         return {"text": user_input, "max_words": 80}
-    if tool_name in {
-        "extract_entities",
-        "extract_deadlines",
-        "extract_action_items",
-        "classify_priority",
-    }:
+    if tool_name in {"extract_entities", "extract_deadlines", "extract_action_items"}:
         return {"text": user_input}
+    if tool_name == "classify_priority":
+        return {"text": _priority_text(user_input=user_input, context=context_payload)}
     if tool_name == "search_incident_knowledge":
-        return {"query": user_input, "limit": 3}
+        return {
+            "query": user_input,
+            "limit": 3,
+            "service": _context_value(context_payload, "service"),
+            "severity": _context_value(context_payload, "severity"),
+        }
     if tool_name == "search_previous_issues":
-        return {"query": user_input, "limit": 3}
+        return {
+            "query": user_input,
+            "limit": 3,
+            "service": _context_value(context_payload, "service"),
+            "severity": _context_value(context_payload, "severity"),
+        }
     if tool_name == "build_incident_brief":
         return {"query": user_input, "incident_knowledge": [], "previous_issues": []}
     return {}
+
+
+def _context_value(context: dict[str, Any], key: str) -> str | None:
+    raw = context.get(key)
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
+
+
+def _priority_text(*, user_input: str, context: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for key in ("priority", "severity", "status"):
+        value = _context_value(context, key)
+        if value:
+            lines.append(f"{key.title()}: {value}")
+    if not lines:
+        return user_input
+    lines.append(f"Summary: {user_input}")
+    return "\n".join(lines)

@@ -18,6 +18,7 @@ def test_tools_endpoint_lists_registered_tools(client: TestClient) -> None:
     assert "extract_entities" in tools
     assert "extract_deadlines" in tools
     assert "extract_action_items" in tools
+    assert "extract_risks" in tools
     assert "classify_priority" in tools
     assert "summarize" in tools
     assert "fetch_company_reference" in tools

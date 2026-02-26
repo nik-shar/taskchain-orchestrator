@@ -1,0 +1,28 @@
+.gcloudignore.agent-orchestrator
+.git
+.gitignore
+
+# Virtualenvs/caches
+venv/
+agent-orchestrator/.agent/
+agent-orchestrator/.pytest_cache/
+agent-orchestrator/.ruff_cache/
+company_details/.venv/
+
+# Large optional datasets not required for runtime
+company_details/2025-06-23 ThePublicJiraDataset/
+company_details/incident+management+process+enriched+event+log/
+company_details/*.pdf
+
+# Local env files
+.env
+.env.*
+agent-orchestrator/.env
+agent-orchestrator/.env.*
+
+# Runtime artifacts
+*.log
+tmp/
+temp/
+data/*
+!data/rag_index.sqlite
