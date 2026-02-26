@@ -1,0 +1,166 @@
+%-------------------------
+% One-Page Resume in LaTeX
+% Author: Nikhil Sharma
+% Target Role: Software Development Engineer (SDE-1)
+%-------------------------
+
+\documentclass[letterpaper,10.5pt]{article}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{enumitem}
+\usepackage[pdftex]{hyperref}
+\usepackage{fancyhdr}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\addtolength{\textheight}{0.75in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Custom Commands
+\newcommand{\resumeItem}[2]{\item\small{\textbf{#1}{: #2 \vspace{-2pt}}}}
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-1pt}\item
+  \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+    \textbf{#1} & #2 \\
+    \textit{\small#3} & \textit{\small #4} \\
+  \end{tabular*}\vspace{-6pt}
+}
+\newcommand{\resumeSubItem}[2]{\resumeItem{#1}{#2}\vspace{-4pt}}
+\renewcommand{\labelitemii}{$\circ$}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=*]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+\begin{document}
+
+%----------HEADER-----------------
+\begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+  \textbf{\Large Nikhil Sharma} & \href{mailto:nsharma@ce.iitr.ac.in}{nsharma@ce.iitr.ac.in} \\
+  Contact: +91 7310534041 & \href{https://www.linkedin.com/in/nikhil-sharma}{linkedin.com/in/nikhil-sharma} \\
+  \href{https://github.com/nik-shar}{github.com/nik-shar} & \\
+\end{tabular*}
+
+%-----------SUMMARY-----------------
+\section{Summary}
+\small{
+AI Engineer specializing in production-grade LLM systems, agent orchestration, and retrieval-augmented generation (RAG). Experienced in building deterministic agent pipelines, hybrid retrieval systems, and deploying scalable AI services on GCP with reliability-focused safeguards.
+}
+
+%-----------EXPERIENCE-----------------
+\section{Experience}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Turing}{Remote}
+{Delivery Data Scientist (Full-Time)}{Jun 2025 -- Present}
+\resumeItemListStart
+  \resumeItem{Data Curation Pipelines}
+    {Designed and executed structured human-in-the-loop workflows for LLM training datasets, including QA pairs, video event annotations, and LaTeX/HTML extraction.}
+  \resumeItem{Data Validation}
+    {Built Python-based preprocessing and JSON schema validation pipelines to improve annotation consistency and downstream model readiness.}
+  \resumeItem{Quality and Alignment}
+    {Performed dataset auditing, error taxonomy analysis, and consistency checks; collaborated with ML and product teams to align data contracts with training and inference requirements.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Avkalan Labs}{Remote}
+{IoT Machine Learning Engineer Intern}{May 2024 -- Aug 2024}
+\resumeItemListStart
+  \resumeItem{Edge AI Deployment}
+    {Deployed ML models on ESP32 using TensorFlow Lite for Microcontrollers and \texttt{emlearn} for real-time inference.}
+  \resumeItem{Optimization}
+    {Optimized memory footprint and inference latency; implemented quantization and firmware-level pipeline improvements for constrained hardware.}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------------
+\section{Projects}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Taskchain Agent Orchestrator (LLM + RAG)}{}
+{Personal Project}{2025 -- Present}
+\resumeItemListStart
+  \resumeItem{Agentic Workflow Backend}
+    {Architected a strict \texttt{plan -> retrieve -> execute -> verify} pipeline using FastAPI and LangGraph for deterministic, auditable execution.}
+  \resumeItem{Schema-Safe Tooling}
+    {Enforced schema-validated tool calls with Pydantic to prevent malformed execution and reduce hallucinated actions.}
+  \resumeItem{Hybrid Retrieval}
+    {Implemented hybrid retrieval with SQLite FTS5 (lexical) and Chroma embeddings (semantic), plus deterministic fallback logic for reliability.}
+  \resumeItem{Verification and Observability}
+    {Added evidence/citation verification gates, execution telemetry, and PostgreSQL run artifact persistence (\texttt{tasks}, \texttt{task\_runs}) for debugging and evaluation.}
+  \resumeItem{Cloud Deployment}
+    {Deployed on Google Cloud Run with Cloud SQL, Secret Manager, and Cloud Build; added unit/integration tests for deterministic and LLM fallback behavior.}
+\resumeItemListEnd
+
+\resumeSubheading
+{IoT Sensor Data Aggregation and Visualization Platform}{}
+{Personal Project}{Jan 2025 -- Present}
+\resumeItemListStart
+  \resumeItem{Backend and APIs}
+    {Built a FastAPI backend for real-time ESP32 sensor stream ingestion with modular REST APIs and multi-node communication.}
+  \resumeItem{Frontend Monitoring}
+    {Developed a React.js dashboard for live visualization and monitoring with scalable backend integration.}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%-----------LEADERSHIP-----------------
+\section{Leadership}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Technical Head}{Models and Robotics Section, IIT Roorkee}
+{Student Leadership Role}{May 2024 -- Present}
+\resumeItemListStart
+  \resumeItem{Team Leadership}
+    {Led a 50+ member technical team and managed an INR 4L annual budget for robotics R\&D and competitions.}
+  \resumeItem{Community Initiatives}
+    {Organized national-level hackathons and technical workshops; secured \textbf{1st Prize in Ware Wizard (Cognizance, IIT Roorkee)}.}
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+%-----------COMPETITIVE PROGRAMMING-----------------
+\section{Competitive Programming}
+\resumeSubHeadingListStart
+\resumeSubheading
+{LeetCode and GeeksforGeeks}{}{}{Jul 2024 -- Present}
+\resumeItemListStart
+  \resumeItem{Problem Solving}
+    {Solved 400+ algorithmic problems; achieved max LeetCode rating of 1787.}
+\resumeItemListEnd
+\resumeSubHeadingListEnd
+
+%-----------SKILLS-----------------
+\section{Technical Skills}
+\resumeSubHeadingListStart
+  \resumeSubItem{Programming}{Python, SQL}
+  \resumeSubItem{Machine Learning \& AI}{RAG Systems, Agentic Workflows, LLM Tool Calling, Retrieval Evaluation, Model Quantization, TensorFlow Lite Micro}
+  \resumeSubItem{LLM \& Retrieval Systems}{LangGraph, OpenAI API, Embedding-based Retrieval, Hybrid Search (FTS5 + Vector DB), Chroma, Prompt Engineering}
+  \resumeSubItem{Backend \& Data Systems}{FastAPI, Pydantic, REST APIs, PostgreSQL, SQLite (FTS5), JSON Schema Validation}
+  \resumeSubItem{Cloud \& DevOps}{Docker, Google Cloud Run, Cloud SQL, Secret Manager, Cloud Build, Git, Linux}
+\resumeSubHeadingListEnd
+
+%-----------EDUCATION-----------------
+\section{Education}
+\resumeSubHeadingListStart
+\resumeSubheading
+{Indian Institute of Technology, Roorkee}{Roorkee, India}
+{B.Tech in Civil Engineering}{Nov 2021 -- May 2025}
+\resumeSubHeadingListEnd
+
+\end{document}
