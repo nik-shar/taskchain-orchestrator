@@ -100,11 +100,24 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configuration
-Create a `.env` file in the root directory and configure the environment variables:
+Create a `.env` file in the root directory. TaskChain is LLM provider-agnostic and works with any OpenAI-compatible API endpoint (e.g. OpenAI, Nebius, DeepSeek, or local Ollama instances).
+
+Configure the environment variables in your `.env` file:
 ```env
+# General LLM API Key (OpenAI, Nebius, DeepSeek, etc.)
+NEBIUS_API_KEY=your_llm_api_key_here
+
+# GitHub Access Token (for downloading repository code and issues)
+GITHUB_TOKEN=your_github_personal_access_token_here
+
+# Database URL Connection String
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5433/taskchain
-NEBIUS_API_KEY=your_nebius_llm_api_key
-GITHUB_TOKEN=your_github_personal_access_token
+
+# Optional Model/URL Overrides (e.g. to use OpenAI directly)
+# LLM_BASE_URL=https://api.openai.com/v1/
+# LLM_MODEL=gpt-4o
+# NEBIUS_EMBEDDING_BASE_URL=https://api.openai.com/v1/
+# EMBEDDING_MODEL=text-embedding-3-large
 ```
 
 ### 3. Running the Server
