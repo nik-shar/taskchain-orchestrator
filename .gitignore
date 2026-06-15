@@ -40,28 +40,11 @@ htmlcov/
 *.swo
 .DS_Store
 
-# Runtime artifacts
+# Local database & repository caches
+data/chroma_db/
+data/fts.db
+data/repos/
 *.log
-tmp/
-temp/
-data/tasks.db
-data/rag_index.sqlite
-data/.jira_subset_tmp/
-
-# Personal notes/docs (local only)
-README_for_me.md
-SUMMARY.md
-TUTORIAL.md
-Software_Engineer_Resume.pdf
-Software_Engineer_Resume_AI.md
-Software_Engineer_Resume_AI.tex
-
-# Local subproject artifacts and oversized datasets
-agent-orchestrator/.agent/
-agent-orchestrator/.pytest_cache/
-agent-orchestrator/.ruff_cache/
-agent-orchestrator/.env
-agent-orchestrator/.env.*
-company_details/.venv/
-company_details/2025-06-23 ThePublicJiraDataset/
-company_details/*.pdf
+rag_index.sqlite
+rag_vector_index.sqlite
+tasks.db

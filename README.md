@@ -1,246 +1,121 @@
-# Taskchain Orchestrator
+# TaskChain — GitHub Contributor Onboarding & Autonomous Coding Workspace
 
-FastAPI-based task orchestration service for AI-agent workflows with a strict `planner -> executor -> verifier` pipeline and PostgreSQL task persistence.
+TaskChain is a developer agent system designed to automate public GitHub repository onboarding and issue resolution. Instead of just working alongside developers, TaskChain functions as an autonomous **Coding Agent** running within an isolated **Docker Sandbox**, coupled with an interactive **Monaco Editor Browser Workspace** and **Steerable LLM ReAct loop control**.
 
-## Why this project
+---
 
-This project demonstrates production-style AI engineering patterns:
+## Key Features
 
-- Deterministic baseline behavior with optional LLM augmentation.
-- Typed schemas across planning, tool execution, and verification (Pydantic v2).
-- Reliability-oriented execution with retries, timeouts, and verification gates.
-- API + storage + tests integrated in a clean `src/` layout.
+1. **Personalized Contributor Onboarding**
+   - Paste any public GitHub repository URL and describe your developer background.
+   - Generates a customized Contributor Guide, indexes technical DNA (README, tech stack, rules), and recommends matching open issues.
 
-## Architecture
+2. **Orchestrator & Handoff Router**
+   - Coordinates conversations and automatically routes handoff requests. 
+   - Detects explicit trigger commands (e.g., `/solve #42` or `let's work on issue 7`) to open the sandbox workspace and dispatch the agent.
 
-```text
-Client/API
-   |
-POST /tasks/{id}/run
-   |
-Planner (deterministic or LLM)
-   |
-Executor (tool registry + retries/timeouts)
-   |
-Verifier (structural + quality checks)
-   |
-PostgreSQL (task state + artifacts)
+3. **Steerable ReAct Coding Agent**
+   - Powered by an LLM loop equipped with local tools (`list_directory`, `read_file`, `write_file`, `run_tests`).
+   - Supports user-specified **Steering Instructions** injected into the system prompt to enforce rules or limit search scope.
+
+4. **Docker Sandbox Execution Engine**
+   - Mounts cloned repositories inside isolated container volumes to safely execute compiler, build, and test runner commands (e.g., `pytest`, `npm test`).
+   - Gracefully falls back to local subprocess execution with warnings if Docker is offline.
+
+5. **Split-Pane Developer Workspace UI**
+   - **Left Pane**: Expandable folder and file tree highlighting files modified by the agent.
+   - **Right Pane**: Monaco Code Editor (the exact editor inside VS Code) loaded dynamically via RequireJS, supporting save controls and `Ctrl+S` hotkeys.
+   - **Bottom Console**: Dark terminal console streaming LLM thoughts, execution stages, and sandbox test logs in real-time.
+
+---
+
+## System Architecture
+
+```mermaid
+graph TD
+    User[Developer UI] -->|Connect Repo & Profile| Ingestion[Ingestion Pipeline]
+    Ingestion -->|1. Shallow Git Clone| Repo[(Local Repo Clone)]
+    Ingestion -->|2. Tech Stack & DNA Summary| Postgres[(PostgreSQL)]
+    Ingestion -->|3. Index Issues & docs| Vector[Chroma & SQLite FTS]
+    
+    User -->|Open Workspace / Solve| Orch[Orchestrator]
+    Orch -->|Start Solve Task| Coding[ReAct Coding Agent]
+    
+    Coding -->|Read/Write Source Code| Repo
+    Coding -->|Execute commands & tests| Docker[Docker Sandbox]
+    Docker -->|Mounts Workspace| Repo
+    
+    Repo -->|git diff| User
+    User -->|Manual Code Edits| Monaco[Monaco Editor]
+    Monaco -->|Persistence API| Repo
 ```
 
-Execution artifacts are persisted for each task:
+---
 
-- `plan_json`
-- `result_json`
-- `verification_json`
+## Project Structure
 
-## Tech stack
+```
+├── agent/
+│   ├── onboarding_agent.py   # LLM onboarding guide and chat logic
+│   ├── onboarding_workflow.py# LangGraph multi-step ingestion search workflow
+│   ├── orchestrator.py        # Intercepts chat triggers and dispatches handoffs
+│   └── coding_agent.py        # Steerable LLM ReAct loop solver with sandbox tools
+├── api/
+│   └── server.py              # FastAPI application, streaming SSE events and file APIs
+├── ingestion/
+│   ├── github_fetcher.py      # GitHub REST fetcher for files, issues, PRs
+│   └── ingestion_pipeline.py  # DNA summarizer, vector database indexing, and local clone
+├── ui/
+│   ├── index.html             # Split-pane layout, Monaco config, and terminal components
+│   ├── app.js                 # Monaco editor loads, tree scanner, console polling, and steer solvers
+│   └── styles.css             # Harmonious HSL styling and responsive panels
+├── utils/
+│   ├── db.py                  # SQLAlchemy models (guides, handoffs, message history)
+│   └── sandbox.py             # Docker CLI command execution wrapper and local subprocess fallback
+├── tests/
+│   ├── test_steerable_agent.py# Tests for steering API, DB logs, and prompt guidelines
+│   ├── test_sandbox.py        # Sandbox timeout, mounting, and execution tests
+│   └── test_file_apis.py      # File tree traversal guards and content endpoints
+├── config.py                  # Global settings, model endpoints, and local clone paths
+├── pyproject.toml             # Project dependency settings
+├── requirements.txt           # Python library requirements list
+└── Makefile                   # Quick-start build commands
+```
 
-- Python 3.13
-- FastAPI
-- Pydantic v2
-- PostgreSQL + psycopg3
-- pytest, Ruff, Black
-- Optional OpenAI integration for LLM planner/tool behavior
+---
 
-## Repository layout
+## Getting Started
 
-- `src/orchestrator_api/`: application package and API entrypoint.
-- `src/orchestrator_api/app/`: planner, executor, verifier, storage, UI, and adapters.
-- `tests/`: unit tests.
-- `tests/integration/`: integration and optional live-LLM tests.
-- `company_details/company_sim/`: company/policy simulation data used by tools.
-- `data/`: local retrieval corpus/index assets.
+### Prerequisites
+- Python 3.10+
+- Docker (for sandbox container tests)
+- PostgreSQL database
 
-## Quick start
-
-1. Create and activate a virtual environment.
-
+### 1. Installation
+Clone the repository and set up a virtual environment:
 ```bash
 python -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-2. Install project and dev dependencies.
+### 2. Configuration
+Create a `.env` file in the root directory and configure the environment variables:
+```env
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5433/taskchain
+NEBIUS_API_KEY=your_nebius_llm_api_key
+GITHUB_TOKEN=your_github_personal_access_token
+```
 
+### 3. Running the Server
+Start the FastAPI development server:
 ```bash
-python -m pip install -e ".[dev]"
+python -m uvicorn api.server:app --reload
 ```
+Open your browser and navigate to `http://localhost:8000` to interact with TaskChain.
 
-3. Create a local `.env` from the example and set values.
-
+### 4. Running the Tests
+To run all unit and integration test suites:
 ```bash
-cp .env.example .env
+PYTHONPATH=. venv/bin/pytest -v
 ```
-
-Then edit `.env` (at minimum `ORCHESTRATOR_DATABASE_URL`).
-
-4. Run the API.
-
-```bash
-make run
-```
-
-Service starts at `http://127.0.0.1:8000`.
-
-## Run container locally (Cloud Run parity)
-
-Use this flow to validate the container startup path before deploying to Cloud Run.
-
-1. Start PostgreSQL in Docker.
-
-```bash
-docker network create taskchain-net || true
-
-docker run --name orchestrator-postgres \
-  --network taskchain-net \
-  -e POSTGRES_USER=orchestrator \
-  -e POSTGRES_PASSWORD=orchestrator \
-  -e POSTGRES_DB=orchestrator_db \
-  -p 5432:5432 \
-  -d postgres:16
-```
-
-2. Ensure local RAG index file exists for Docker build context.
-
-```bash
-mkdir -p data
-test -f data/rag_index.sqlite || touch data/rag_index.sqlite
-```
-
-3. Build the app image.
-
-```bash
-docker build -t taskchain-orchestrator:local .
-```
-
-4. Run the app container on port `8080` (mapped to host `8000`).
-
-```bash
-docker run --name taskchain-orchestrator \
-  --network taskchain-net \
-  -p 8000:8080 \
-  -e ORCHESTRATOR_DATABASE_URL='postgresql://orchestrator:orchestrator@orchestrator-postgres:5432/orchestrator_db' \
-  -e ORCHESTRATOR_PLANNER_MODE=deterministic \
-  -e ORCHESTRATOR_EXECUTOR_MODE=deterministic \
-  taskchain-orchestrator:local
-```
-
-5. Smoke test from another terminal.
-
-```bash
-curl -sS http://127.0.0.1:8000/health
-curl -sS http://127.0.0.1:8000/tools
-```
-
-6. Optional cleanup.
-
-```bash
-docker stop taskchain-orchestrator orchestrator-postgres
-docker rm taskchain-orchestrator orchestrator-postgres
-docker network rm taskchain-net
-```
-
-Notes:
-- If the container exits immediately, inspect logs with:
-  `docker logs taskchain-orchestrator`
-- If you need company mock tools (`jira_search_tickets`, `metrics_query`, `logs_search`), set
-  `COMPANY_JIRA_BASE_URL`, `COMPANY_METRICS_BASE_URL`, and `COMPANY_LOGS_BASE_URL` to reachable URLs.
-
-## API endpoints
-
-- `GET /health` (`/healthz`, `/live` aliases): liveness.
-- `GET /`: minimal UI homepage.
-- `GET /tools`: list available executor tools.
-- `POST /tasks`: create a task.
-- `GET /tasks/{task_id}`: fetch task status and artifacts.
-- `POST /tasks/{task_id}/run`: execute planner -> executor -> verifier pipeline.
-
-## Example API usage
-
-Create a task:
-
-```bash
-curl -sS -X POST http://127.0.0.1:8000/tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task": "Prepare an executive update for Atlas Checkout migration and include risks.",
-    "context": {"project": "Atlas Checkout", "priority": "high"}
-  }'
-```
-
-Run a task:
-
-```bash
-curl -sS -X POST http://127.0.0.1:8000/tasks/<TASK_ID>/run \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-## Testing and quality
-
-Run full test suite:
-
-```bash
-make test
-```
-
-Run deterministic PostgreSQL integration flow:
-
-```bash
-RUN_POSTGRES_INTEGRATION_TESTS=1 python -m pytest tests/integration/test_api_real_world_flow.py
-```
-
-Run live LLM integration flow (optional):
-
-```bash
-RUN_POSTGRES_INTEGRATION_TESTS=1 RUN_LIVE_LLM_TESTS=1 OPENAI_API_KEY=<key> \
-python -m pytest tests/integration/test_live_llm_flow.py
-```
-
-Formatting/linting:
-
-```bash
-make fmt
-make lint
-```
-
-## Configuration
-
-Core runtime:
-
-- `ORCHESTRATOR_DATABASE_URL` (required)
-- `ORCHESTRATOR_PLANNER_MODE` = `deterministic` | `llm`
-- `ORCHESTRATOR_EXECUTOR_MODE` = `deterministic` | `llm`
-
-LLM settings:
-
-- `ORCHESTRATOR_LLM_PROVIDER` (default: `openai`)
-- `OPENAI_API_KEY`
-- `ORCHESTRATOR_LLM_MODEL` (default: `gpt-4o-mini`)
-- `ORCHESTRATOR_LLM_BASE_URL`
-- `ORCHESTRATOR_LLM_MAX_RETRIES`
-- `ORCHESTRATOR_LLM_BACKOFF_S`
-- `ORCHESTRATOR_LLM_TRACE` (`1` to enable request tracing logs)
-
-Timeouts and retries:
-
-- `ORCHESTRATOR_PLANNER_TIMEOUT_S`
-- `ORCHESTRATOR_EXECUTOR_LLM_TIMEOUT_S`
-- `ORCHESTRATOR_TOOL_TIMEOUT_S`
-- `ORCHESTRATOR_TOOL_MAX_RETRIES`
-- `ORCHESTRATOR_TOOL_BACKOFF_S`
-- `ORCHESTRATOR_EXECUTOR_FAIL_FAST` (`1` stops execution after first tool failure)
-
-Retrieval and company data:
-
-- `ORCHESTRATOR_COMPANY_SIM_ROOT`
-- `ORCHESTRATOR_RAG_INDEX_PATH`
-- `ORCHESTRATOR_RAG_RERANK_MODE` = `auto` | `deterministic` | `llm`
-- `ORCHESTRATOR_RAG_RERANK_TIMEOUT_S`
-
-## Current status and roadmap
-
-- Phase 1: complete (local + Docker vertical slice, API/UI, PostgreSQL task persistence).
-- Phase 2: complete (optional OpenAI-backed planner/tool paths with deterministic fallback).
-- Phase 3: complete (expanded toolset, stronger verification, reliability hardening, observability).
-- Phase 4: planned (Cloud Run deployment + managed Postgres/Cloud SQL).

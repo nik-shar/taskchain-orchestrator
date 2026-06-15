@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contributor Onboarding Agent — TaskChain Orchestrator</title>
+    <link rel="stylesheet" href="/static/styles.css?v=1.3" />
+    
+    <!-- Standard Markdown Compilation (Marked.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Syntax Highlighting (Highlight.js) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <!-- Math Equation Rendering (KaTeX) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" defer></script>
+
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero" data-reveal>
+        <button id="themeToggle" class="theme-toggle-btn" aria-label="Toggle theme" type="button">
+          <svg class="sun-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg class="moon-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+        <p class="eyebrow">GitHub Contributor Agent</p>
+        <h1>Onboard to any public repository in seconds.</h1>
+        <p class="hero-copy">
+          Paste a public GitHub repository URL, and we'll index its files, issues, and PRs. 
+          Provide your developer profile to receive a tailored contribution onboarding guide.
+        </p>
+      </header>
+
+      <main class="workspace">
+        <!-- Section 1: Ingestion Panel -->
+        <section id="ingestionPanel" class="panel composer" data-reveal>
+          <div class="panel-head">
+            <div>
+              <p class="section-kicker">Step 1</p>
+              <h2>Connect a GitHub Repository</h2>
+            </div>
+            <div id="repoStatusBadge" class="status-badge is-loading hidden">Checking status...</div>
+          </div>
+          <form id="ingestionForm" class="query-form">
+            <div style="display: flex; gap: 12px; align-items: stretch;">
+              <input
+                id="repoUrlInput"
+                type="url"
+                placeholder="e.g. https://github.com/tiangolo/fastapi"
+                required
+                style="flex: 1; padding: 14px 18px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.9); font-size: 1.05rem;"
+              />
+              <button id="ingestButton" class="submit-button" type="submit" style="padding: 0 28px; border-radius: 999px; height: auto;">
+                Connect
+              </button>
+            </div>
+            <div id="ingestionLogs" class="status-note hidden" style="margin-top: 14px; text-align: left; padding: 12px 18px; border-radius: var(--radius-md);"></div>
+            <div id="progressBarContainer" class="progress-bar-container hidden">
+              <div class="progress-bar-header">
+                <span id="progressBarLabel" class="progress-bar-label">Connecting...</span>
+                <span id="progressBarPercent" class="progress-bar-percent">0%</span>
+              </div>
+              <div class="progress-bar-track">
+                <div id="progressBarFill" class="progress-bar-fill"></div>
+              </div>
+            </div>
+            <div id="ingestionTelemetry" class="hidden" style="margin-top: 14px; padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--panel);">
+              <h3 style="margin-top: 0; font-size: 0.95rem; margin-bottom: 8px; color: var(--text);">Ingestion Latency Breakdown</h3>
+              <div id="ingestionTelemetryContent" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 0.85rem;">
+                <!-- Filled dynamically -->
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <!-- Section 2: Developer Background Input Panel -->
+        <section id="profilePanel" class="panel composer hidden" data-reveal>
+          <div class="panel-head">
+            <div>
+              <p class="section-kicker">Step 2</p>
+              <h2>Describe Your Background</h2>
+            </div>
+          </div>
+          <form id="onboardForm" class="query-form">
+            <textarea
+              id="profileInput"
+              rows="4"
+              placeholder="e.g. I know Python and FastAPI. I am familiar with relational databases and SQL, but I am new to contributing to open source."
+              required
+              style="width: 100%; padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--line); background: rgba(255,255,255,0.9); font-size: 1.05rem; resize: vertical;"
+            ></textarea>
+            <div class="composer-footer" style="justify-content: flex-end; margin-top: 12px;">
+              <button id="onboardButton" class="submit-button" type="submit">
+                Get My Guide
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Section 3: Onboarding Guide Results -->
+        <div id="resultsGrid" class="results-grid hidden">
+          <!-- Guide Left Panel -->
+          <article class="panel answer-panel" data-reveal style="padding: 26px;">
+            <div class="panel-head">
+              <div>
+                <p class="section-kicker">Onboarding</p>
+                <h2>Your Contributor Guide</h2>
+              </div>
+              <div id="guideStatusBadge" class="status-badge">Complete</div>
+            </div>
+            <div class="result-block" style="margin-top: 18px;">
+              <div id="guideText" class="answer-text"></div>
+            </div>
+          </article>
+
+          <!-- Tabbed Right Panel -->
+          <article class="panel sources-panel" data-reveal style="padding: 26px;">
+            <div class="panel-tabs" style="display: flex; gap: 16px; border-bottom: 1px solid var(--line); margin-bottom: 18px;">
+              <button id="tabIssuesBtn" class="tab-btn active" type="button">
+                Recommended Issues
+              </button>
+              <button id="tabChatBtn" class="tab-btn" type="button">
+                Onboarding Assistant
+              </button>
+              <button id="tabConsoleBtn" class="tab-btn hidden" type="button">
+                Coding Console
+              </button>
+            </div>
+
+            <!-- Tab 1: Issues List -->
+            <div id="tabIssuesContent">
+              <div class="panel-head" style="margin-bottom: 14px;">
+                <div>
+                  <p class="section-kicker">Matching Tasks</p>
+                  <h2>Recommended Issues</h2>
+                </div>
+              </div>
+              <div id="issuesList" class="feedback-list">
+                <!-- Issue Cards Rendered Dynamically -->
+              </div>
+            </div>
+
+            <!-- Tab 2: Onboarding Chat -->
+            <div id="tabChatContent" class="hidden" style="display: flex; flex-direction: column; height: 500px;">
+              <div class="panel-head" style="margin-bottom: 14px;">
+                <div>
+                  <p class="section-kicker">Live Discussion</p>
+                  <h2>Chat Assistant</h2>
+                </div>
+              </div>
+              <div id="chatMessageFeed" class="chat-message-feed" style="flex: 1; overflow-y: auto; padding-right: 8px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 12px;">
+                <!-- Chat Bubbles Rendered Dynamically -->
+                <div class="chat-bubble assistant">
+                  <p>Welcome! I'm your onboarding mentor. Feel free to ask me follow-up questions about the guide, setup commands, files, or recommended issues.</p>
+                </div>
+              </div>
+              <form id="chatInputForm" style="display: flex; gap: 10px; align-items: stretch;">
+                <textarea
+                  id="chatInputField"
+                  placeholder="Ask a question about the repository..."
+                  required
+                  rows="1"
+                  style="flex: 1; min-height: 48px; height: 48px; padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--line); background: rgba(255,255,255,0.9); font-size: 0.95rem; resize: none;"
+                ></textarea>
+                <button id="chatSendBtn" class="submit-button" type="submit" style="padding: 0 22px; border-radius: var(--radius-md); height: 48px; display: flex; align-items: center; justify-content: center;">
+                  Send
+                </button>
+              </form>
+            </div>
+
+            <!-- Tab 3: Coding Console -->
+            <div id="tabConsoleContent" class="hidden" style="display: flex; flex-direction: column; height: 500px;">
+              <div class="panel-head" style="margin-bottom: 14px;">
+                <div>
+                  <p class="section-kicker">Docker Container Execution</p>
+                  <h2>Coding Console</h2>
+                </div>
+                <div id="consoleStatusBadge" class="status-badge" style="background: var(--bg-hover); color: var(--text);">Idle</div>
+              </div>
+
+              <!-- Progress Bar -->
+              <div id="consoleProgressContainer" style="margin-bottom: 14px; background: var(--bg-hover); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--line);">
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px;">
+                  <span id="consoleProgressLabel" style="font-weight: 500;">Initializing environment...</span>
+                  <span id="consoleProgressPercent" style="font-weight: bold; color: var(--highlight);">0%</span>
+                </div>
+                <div style="height: 6px; width: 100%; background: var(--bg-dark); border-radius: 3px; overflow: hidden; border: 1px solid var(--line);">
+                  <div id="consoleProgressFill" style="height: 100%; width: 0%; background: linear-gradient(90deg, var(--highlight) 0%, var(--primary) 100%); transition: width 0.3s ease;"></div>
+                </div>
+              </div>
+
+              <!-- Terminal Monitor and Checklist -->
+              <div style="display: grid; grid-template-columns: 180px 1fr; gap: 14px; flex: 1; min-height: 0; margin-bottom: 14px;">
+                <!-- Stage Checklist -->
+                <div id="consoleChecklist" style="background: var(--bg-hover); border-radius: var(--radius-md); border: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 12px; font-size: 0.85rem;">
+                  <div class="checklist-item" id="chk-setup" style="display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500;">
+                    <span class="chk-bullet" style="display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); text-align: center; line-height: 12px; font-size: 0.75rem;"></span>
+                    <span>Env Setup</span>
+                  </div>
+                  <div class="checklist-item" id="chk-coding" style="display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500;">
+                    <span class="chk-bullet" style="display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); text-align: center; line-height: 12px; font-size: 0.75rem;"></span>
+                    <span>Task Analysis</span>
+                  </div>
+                  <div class="checklist-item" id="chk-verification" style="display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500;">
+                    <span class="chk-bullet" style="display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); text-align: center; line-height: 12px; font-size: 0.75rem;"></span>
+                    <span>Sandbox Tests</span>
+                  </div>
+                  <div class="checklist-item" id="chk-completed" style="display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500;">
+                    <span class="chk-bullet" style="display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); text-align: center; line-height: 12px; font-size: 0.75rem;"></span>
+                    <span>Patch Created</span>
+                  </div>
+                </div>
+
+                <!-- Dark Monospace Console Terminal -->
+                <div id="consoleTerminal" style="background: #0f141c; color: #a5b4fc; border: 1px solid #1e293b; border-radius: var(--radius-md); padding: 14px; font-family: var(--font-mono); font-size: 0.8rem; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; border-left: 4px solid var(--highlight);">[SYSTEM] Awaiting handoff instruction...</div>
+              </div>
+
+              <!-- Generated Patch Viewer -->
+              <div id="consolePatchSection" class="hidden" style="background: var(--bg-hover); border-radius: var(--radius-md); border: 1px solid var(--line); padding: 14px; display: flex; flex-direction: column; gap: 8px; min-height: 0;">
+                <h3 style="font-size: 0.9rem; font-weight: bold; display: flex; align-items: center; justify-content: space-between; margin: 0;">
+                  <span>Generated Git Patch</span>
+                  <button id="btnCopyPatch" class="submit-button" style="padding: 4px 10px; font-size: 0.75rem; height: auto;">Copy Diff</button>
+                </h3>
+                <pre style="margin: 0; background: var(--bg-dark); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; overflow-x: auto; max-height: 140px; margin-top: 4px;"><code id="consolePatchCode" class="language-diff"></code></pre>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <!-- Section 3.5: Interactive Workspace (Split Pane + Monaco Editor) -->
+        <section id="workspacePanel" class="panel workspace-panel hidden" data-reveal style="grid-column: 1 / -1; padding: 26px;">
+          <div class="panel-head" style="margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <p class="section-kicker" id="workspaceIssueHeader">Sandbox Environment</p>
+              <h2 id="workspaceTitle" style="margin: 0;">Developer Workspace</h2>
+            </div>
+            <!-- Workspace Actions Toolbar -->
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button id="btnWorkspaceAnalyze" class="submit-button" style="padding: 8px 16px; font-size: 0.85rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--bg-hover); color: var(--ink); border: 1px solid var(--line); box-shadow: none;">
+                🔍 Analyze Issue
+              </button>
+              <button id="btnWorkspaceSolve" class="submit-button" style="padding: 8px 16px; font-size: 0.85rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                🚀 Agent: Solve
+              </button>
+              <button id="btnWorkspaceTest" class="submit-button" style="padding: 8px 16px; font-size: 0.85rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--teal);">
+                🧪 Run Tests
+              </button>
+              <button id="btnWorkspaceSave" class="submit-button" style="padding: 8px 16px; font-size: 0.85rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; background: #2563eb;">
+                💾 Save
+              </button>
+              <button id="btnWorkspaceClose" class="submit-button" style="padding: 8px 16px; font-size: 0.85rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--line); color: var(--ink); box-shadow: none;">
+                Close
+              </button>
+            </div>
+          </div>
+
+          <!-- Steering Instructions Input Container -->
+          <div id="steeringContainer" style="margin-top: 12px; margin-bottom: 4px; display: flex; flex-direction: column; gap: 6px;">
+            <label for="steeringInput" style="font-size: 0.85rem; font-weight: 600; color: var(--muted);">Steering Instructions / Guidance (Optional)</label>
+            <input
+              type="text"
+              id="steeringInput"
+              placeholder="e.g. Explore database utils first, don't modify test files, or write unit tests in tests/test_db.py..."
+              style="width: 100%; padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--line); background: rgba(255,255,255,0.9); font-size: 0.9rem;"
+            />
+          </div>
+
+          <!-- Split Pane Workspace body -->
+          <div class="workspace-body" style="display: grid; grid-template-columns: 280px 1fr; gap: 16px; height: 600px; min-height: 0; margin-top: 18px;">
+            <!-- Left Pane: File Tree Browser -->
+            <div class="file-tree-container" style="background: var(--bg-hover); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+              <h3 style="font-size: 0.85rem; font-weight: bold; border-bottom: 1px solid var(--line); padding-bottom: 6px; margin: 0; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase;">Workspace Files</h3>
+              <div id="fileTreeRoot" style="font-size: 0.85rem; line-height: 1.6; margin-top: 6px;">
+                <p style="color: var(--muted); font-style: italic;">Loading file tree...</p>
+              </div>
+            </div>
+
+            <!-- Right Pane: Monaco Editor Container -->
+            <div class="editor-pane" style="display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; position: relative;">
+              <!-- Editor tab bar -->
+              <div id="editorTabBar" style="background: var(--bg-hover); border-bottom: 1px solid var(--line); padding: 6px 12px; font-size: 0.8rem; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; align-items: center;">
+                <span id="activeFileLabel">No file open</span>
+                <span id="editorSaveStatus" style="font-size: 0.75rem; color: var(--teal); opacity: 0; transition: opacity 0.3s ease;">Saved</span>
+              </div>
+              <!-- Monaco Editor Element -->
+              <div id="monacoEditorContainer" style="flex: 1; width: 100%; height: 100%;"></div>
+              <!-- Editor Status Footer -->
+              <div id="editorStatusFooter" style="background: var(--bg-hover); border-top: 1px solid var(--line); padding: 6px 12px; font-size: 0.8rem; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; align-items: center;">
+                <span id="agentModifiedFilesLabel">Modified by Agent: None</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 4: Feedback Panel -->
+        <section id="onboardingFeedbackSection" class="panel feedback-panel hidden" data-reveal>
+          <div class="panel-head">
+            <div>
+              <p class="section-kicker">Evaluation</p>
+              <h2>Rate Your Onboarding Guide</h2>
+            </div>
+          </div>
+          <div class="feedback-content" style="margin-top: 18px;">
+            <p style="color: var(--muted); margin-bottom: 14px;">How helpful was this customized contributor guide for starting your onboarding?</p>
+            <div class="rating-group">
+              <label class="rating-option">
+                <input type="radio" name="onboard-rating" value="2" />
+                <span>Highly helpful</span>
+              </label>
+              <label class="rating-option">
+                <input type="radio" name="onboard-rating" value="1" />
+                <span>Somewhat helpful</span>
+              </label>
+              <label class="rating-option">
+                <input type="radio" name="onboard-rating" value="0" />
+                <span>Not helpful</span>
+              </label>
+            </div>
+            <div class="feedback-toolbar" style="margin-top: 18px;">
+              <button id="saveOnboardFeedbackButton" class="submit-button" type="button">
+                Submit Feedback
+              </button>
+              <div id="feedbackSaveStatus" class="inline-status"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 5: Telemetry Trace Panel -->
+        <section id="onboardingTelemetrySection" class="panel debug-panel hidden" data-reveal>
+          <div class="panel-head">
+            <div>
+              <p class="section-kicker">Trace</p>
+              <h2>Telemetry Details</h2>
+            </div>
+          </div>
+          <div id="telemetryContent" class="debug-content" style="margin-top: 18px; display: grid; gap: 14px;">
+            <div>
+              <h3>Generated Search Queries</h3>
+              <div id="queryPillsContainer" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;"></div>
+            </div>
+            <div>
+              <h3>Cache Status</h3>
+              <div id="cacheStatusContainer" style="margin-top: 6px;"></div>
+            </div>
+            <div>
+              <h3>Workflow Latency Breakdown</h3>
+              <div id="latencyBreakdownContainer" style="margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 0.9rem;">
+                <!-- Filled dynamically -->
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js?v=1.3" defer></script>
+  </body>
+</html>
