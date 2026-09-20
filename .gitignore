@@ -40,11 +40,12 @@ htmlcov/
 *.swo
 .DS_Store
 
-# Local database & repository caches
-data/chroma_db/
-data/fts.db
+# Local database, repo snapshots and agent-generated state
+data/*.sqlite
+data/*.db
+data/*.sqlite3
 data/repos/
+data/workspaces/
+data/worktrees/
+data/chroma_db/
 *.log
-rag_index.sqlite
-rag_vector_index.sqlite
-tasks.db
