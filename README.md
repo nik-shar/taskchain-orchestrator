@@ -1,128 +1,167 @@
-# TaskChain — Autonomous Coding Workspace
+# TaskChain — Autonomous Repository Agent
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![OpenAI](https://img.shields.io/badge/LLM-OpenAI-green.svg)](https://openai.com/)
+[![LLM-OpenAI-green.svg)](https://openai.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**TaskChain** is an autonomous developer agent system designed to automate public GitHub repository issue resolution. Rather than operating as a simple chat assistant, TaskChain functions as an end-to-end autonomous workspace powered by a rigid **Planner → Executor → Verifier** pipeline. 
+**TaskChain** is an autonomous developer agent that understands a GitHub repository end-to-end — its code, issues, and pull requests — and can answer questions about it, fix issues, and refine its own patches based on feedback.
 
-By leveraging **OpenAI** models and a highly efficient **SQLite-based RAG (Retrieval-Augmented Generation) index** with optional reranking, TaskChain seamlessly understands complex codebases, formulates execution plans, writes code, and verifies its own work.
+Paste a public repo. Ask it anything. Point it at an issue and let it ship a fix.
 
 ---
 
-## 🚀 Key Features
+## 🎯 Core Use Cases
 
-### 1. Planner → Executor → Verifier Pipeline
-TaskChain separates the coding process into three distinct, specialized agent roles to ensure high-quality code generation and minimize hallucinations:
-- **Planner Agent:** Analyzes the submitted GitHub issue, queries the local repository index for context, and breaks down the solution into a step-by-step technical execution plan.
-- **Executor Agent:** Takes the formulated plan and autonomously applies targeted file modifications to the local repository clone.
-- **Verifier Agent:** Evaluates the generated patch against the original issue requirements. If the verifier detects errors, it sends feedback back to the Executor for self-correction.
+These are the features that define v1 — everything else is a stretch goal (see [Roadmap](#-roadmap)).
 
-### 2. SQLite RAG Indexing & Reranking
-TaskChain avoids heavy vector databases by utilizing a lightweight but powerful `data/rag_index.sqlite` full-text search database. 
-- Automatically indexes repository source code, markdown documentation, and architectural "DNA".
-- Includes an **optional Rerank Mode** that re-evaluates and sorts search results to provide the LLMs with only the highest-fidelity context.
+### 1. Repo-Aware Q&A
+Ask natural-language questions about the codebase, its issues, or its pull requests:
+- *"What does this repo do?"*
+- *"Where is authentication handled?"*
+- *"What's issue #42 about, and has anyone attempted a fix?"*
+- *"Summarize the changes in PR #17."*
 
-### 3. OpenAI Integration
-TaskChain is deeply integrated with OpenAI's API. It leverages advanced reasoning models to comprehend complex code logic, navigate project structures, and write production-ready code.
+Powered by the RAG index — read-only, fast, works on any repo with zero setup. This is the first thing a user should be able to try.
 
-### 4. Minimalist Web Interface
-A clean, lightweight web UI provides developers with a streamlined dashboard to:
-- Connect and import public GitHub repositories.
-- Paste issue links or feature requests.
-- Monitor the real-time execution logs of the Planner, Executor, and Verifier pipeline.
+### 2. Issue → Pull Request
+Paste an issue link (or describe a bug/feature in plain English). The **Planner → Executor → Verifier** pipeline:
+1. Plans a fix using indexed repo context
+2. Applies the code changes
+3. Verifies the patch against the issue **and runs the repo's actual test suite / linter** — not just an LLM's opinion of its own work
+4. Opens a real GitHub pull request with the fix and a summary of what changed
+
+### 3. Conversational Patch Refinement
+After a patch is generated, the user can steer it without starting over:
+- *"Don't touch the config file, only the handler."*
+- *"Also cover the case where the input is empty."*
+
+The agent re-runs Executor → Verifier against the feedback instead of regenerating from scratch. This demonstrates agent steerability, not just one-shot generation.
+
+### 4. Plain-English Result Summaries
+Every run ends with a human-readable summary — files changed, tests passed/failed, what was fixed — so results are legible to someone who doesn't want to read a raw diff.
+
+---
+
+## 🧱 What This Version Removes
+
+Earlier iterations of this repo explored a sandboxed manual coding environment (in-browser editor + arbitrary code execution). This has been **fully removed** from scope:
+- Out of scope for the problem this project demonstrates (agent orchestration, not IDE infrastructure)
+- Introduces security/cost exposure (arbitrary code execution from public users) disproportionate to the value it adds
+- All related code, dependencies, and UI elements should be deleted, not just hidden
+
+If sandboxed execution is ever revisited, it should be scoped as its own project.
 
 ---
 
 ## 🧠 System Architecture
 
-The core of TaskChain revolves around a linear, self-correcting agent pipeline:
-
-```mermaid
+```
 graph TD
-    User([Developer UI]) -->|1. Submit Issue| Planner[Planner Agent]
-    
-    subgraph "Agentic Pipeline"
-        Planner -->|2. Query Context| DB[(SQLite RAG Index <br> data/rag_index.sqlite)]
-        DB -->|Context| Planner
-        Planner -->|3. Drafts Execution Plan| Executor[Executor Agent]
-        
-        Executor -->|4. Reads/Writes Code| Repo[(Local Git Clone)]
-        Executor -->|5. Generates Diff| Verifier[Verifier Agent]
-        
-        Verifier -->|6a. Fails: Feedback| Executor
-    end
-    
-    Verifier -->|6b. Passes: Final Patch| User
+    User([User]) -->|1. Ask question / submit issue| Router{Query type}
+
+    Router -->|Q&A| RAG[(RAG Index<br>code + issues + PRs)]
+    RAG -->|Answer| User
+
+    Router -->|Fix request| Planner[Planner Agent]
+    Planner -->|Query context| RAG
+    Planner -->|Execution plan| Executor[Executor Agent]
+    Executor -->|Reads/writes code| Repo[(Local Git Clone)]
+    Executor -->|Diff| Verifier[Verifier Agent]
+    Verifier -->|Runs tests/lint| Repo
+    Verifier -->|Fails: feedback| Executor
+    Verifier -->|Passes| PR[Opens GitHub PR]
+    PR --> User
+
+    User -->|Refinement feedback| Executor
 ```
 
 ---
 
 ## 📂 Project Structure
 
-```text
+```
 ├── agent/
-│   ├── planner.py             # Issue analysis and step-by-step plan generation
-│   ├── executor.py            # Applies code edits based on the plan
-│   └── verifier.py            # Reviews generated diffs and issues corrections
+│   ├── planner.py           # Issue/feature analysis and plan generation
+│   ├── executor.py          # Applies code edits, incorporates refinement feedback
+│   └── verifier.py          # Runs tests/lint + reviews diff against requirements
 ├── api/
-│   └── server.py              # FastAPI application and UI endpoints
+│   └── server.py            # FastAPI application and endpoints
 ├── ingestion/
-│   └── sqlite_indexer.py      # SQLite RAG indexer and reranking logic
+│   ├── sqlite_indexer.py    # Indexes source code and markdown docs
+│   └── github_indexer.py    # Indexes issues and PR metadata/discussion (NEW)
+├── github/
+│   └── pr_client.py         # Opens/updates pull requests via GitHub API (NEW)
 ├── ui/
-│   ├── index.html             # Minimal UI homepage
-│   └── styles.css             # UI styling
-├── data/                      # Local storage for cloned repos and SQLite DB
-├── tests/                     # Unit and integration test suites
-├── config.py                  # Global settings and environment loading
-├── requirements.txt           # Python dependencies
-└── README.md                  # This documentation
+│   ├── index.html           # Dashboard: Q&A, issue submission, live pipeline logs
+│   └── styles.css
+├── data/                    # Local storage for cloned repos and SQLite DB
+├── tests/
+├── config.py
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Essential Features To Build
+
+Tracking what's already built vs. what's needed to reach the v1 scope above.
+
+| Feature | Status |
+|---|---|
+| Planner → Executor → Verifier pipeline | ✅ Built |
+| SQLite RAG indexing of source code + docs | ✅ Built |
+| Minimal web dashboard | ✅ Built |
+| GitHub Issues/PRs ingestion into RAG index | ⬜ To build |
+| Repo-aware Q&A endpoint (chat interface, no Executor) | ⬜ To build |
+| Verifier runs actual test suite / linter (not just LLM judgment) | ⬜ To build |
+| Opens real GitHub PRs via API (not just local diff) | ⬜ To build |
+| Conversational patch refinement loop | ⬜ To build |
+| Plain-English run summaries | ⬜ To build |
+| Free-form feature request input (no issue link required) | ⬜ To build |
+| Repo size limits / per-run timeout & cost caps | ⬜ To build |
+| Hosted deployment (GCP) | ⬜ To build |
+| Removal of all sandbox-environment code/UI/deps | ⬜ To build |
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
 - Python 3.10 or higher
-- An active OpenAI API Key
+- An OpenAI API key
+- A GitHub personal access token (for issue/PR ingestion and opening PRs)
 
-### 1. Installation
-Clone the repository and set up a virtual environment:
+### Installation
 
 ```bash
-git clone https://github.com/yourusername/taskchain-orchestrator.git
+git clone https://github.com/nik-shar/taskchain-orchestrator.git
 cd taskchain-orchestrator
 python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configuration
-Create a `.env` file in the root directory of the project.
+### Configuration
 
-```env
-# Required: OpenAI API Key for the agent pipeline
+Create a `.env` file in the project root:
+
+```
 OPENAI_API_KEY=sk-your_openai_api_key_here
-
-# Database URL Connection String for RAG indexing
+GITHUB_TOKEN=ghp-your_github_token_here
 DATABASE_URL=sqlite:///data/rag_index.sqlite
-
-# Optional: Enable reranking for better RAG precision (True/False)
 ENABLE_RERANKER=True
 ```
 
-### 3. Running the Application
-Start the FastAPI server to serve the API and the minimal UI:
+### Running
 
 ```bash
 python -m uvicorn api.server:app --reload
 ```
 
-Open your browser and navigate to `http://localhost:8000` to interact with the TaskChain dashboard.
+Open `http://localhost:8000` to use the dashboard.
 
-### 4. Running the Tests
-To ensure the pipeline is functioning correctly, you can run the test suite:
+### Testing
 
 ```bash
 PYTHONPATH=. venv/bin/pytest -v
@@ -130,8 +169,22 @@ PYTHONPATH=. venv/bin/pytest -v
 
 ---
 
+## 🗺️ Roadmap
+
+Stretch goals beyond v1 — not required for launch, useful for later iterations:
+
+- Auto-generated documentation / README for arbitrary repos
+- Missing-test generation for uncovered functions
+- Issue triage: rank open issues by how tractable they look for the agent
+- PR review assistant: review a human-authored PR against repo conventions
+- Multi-provider LLM support (not just OpenAI)
+
+---
+
 ## 🤝 Contributing
-Contributions, issues, and feature requests are welcome! Feel free to check the issues page if you want to contribute.
+
+Contributions, issues, and feature requests are welcome — check the issues page.
 
 ## 📝 License
-This project is licensed under the MIT License.
+
+MIT License.

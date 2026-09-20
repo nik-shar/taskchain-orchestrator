@@ -1,66 +1,73 @@
-import logging
-import hashlib
+"""FastAPI application for the TaskChain autonomous repository agent."""
 import json
+import logging
+import re
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from openai import OpenAI
 from pydantic import BaseModel
 
-from utils.logging_config import setup_logging
-from utils.db import get_db, RepoIngestion, OnboardingGuide, UserFeedback, ChatMessage, OnboardingSessionState, HandoffSession
+import config
+from agent.code_tools import CodeReader, build_code_context
+from agent.executor import Executor
+from agent.planner import Planner
+from agent.verifier import Verifier
+from github.pr_client import PullRequestClient
+from ingestion.docs_collector import build_docs_context
 from ingestion.ingestion_pipeline import ingest_repository
-from agent.onboarding_workflow import run_onboarding_workflow
-from agent.onboarding_agent import get_onboarding_agent
-from langchain_core.messages import HumanMessage, AIMessage
+from ingestion.sqlite_indexer import keyword_search
+from ingestion.workspace import get_workspace
+from utils.db import RepoIngestion, get_db, init_db
+from utils.logging_config import setup_logging
 
-# Configure structured JSON logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
 UI_DIR = Path(__file__).resolve().parents[1] / "ui"
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
 app = FastAPI(
-    title="GitHub Contributor Onboarding Agent",
-    description="RAG-powered GitHub repository onboarding checklist assistant",
-    version="0.1.0"
+    title="TaskChain — Autonomous Repository Agent",
+    description="RAG-powered GitHub repository Q&A and issue-to-PR automation.",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=UI_DIR), name="static")
-
-
-@app.on_event("startup")
-def on_startup():
-    from utils.db import init_db
-    init_db()
 
 
 class IngestRequest(BaseModel):
     repo_url: str
 
 
-class OnboardRequest(BaseModel):
-    user_background: str
+class AskRequest(BaseModel):
+    question: str
 
 
-class FeedbackRequest(BaseModel):
-    session_id: str | None = None
-    rating: int
-    background_hash: str
+class FixRequest(BaseModel):
+    issue_description: str
 
 
-class ChatRequest(BaseModel):
+class RefineRequest(BaseModel):
     session_id: str
-    user_background: str
-    message: str
+    feedback: str
 
 
-class HandoffStartRequest(BaseModel):
-    session_id: str
-    selected_issue: int
-    user_background: str
-    steering_instructions: str | None = None
+class PROpenRequest(BaseModel):
+    title: str
+    body: str
+    head_branch: str
+    base_branch: str = "main"
 
 
 @app.get("/", include_in_schema=False)
@@ -77,31 +84,30 @@ def health():
 def trigger_ingestion(request: IngestRequest, background_tasks: BackgroundTasks):
     if not request.repo_url.strip():
         raise HTTPException(status_code=400, detail="Repository URL cannot be empty")
-        
+
+    from ingestion.github_indexer import parse_github_url
     try:
-        from ingestion.github_fetcher import parse_github_url
         owner, repo = parse_github_url(request.repo_url)
-        repo_id = f"{owner}/{repo}"
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    # Check if a recent complete ingestion already exists (cache hit)
-    import config
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    repo_id = f"{owner}/{repo}"
     db = next(get_db())
     try:
         existing = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
         if existing and existing.status == "complete":
-            age = datetime.now(timezone.utc) - (existing.ingested_at.replace(tzinfo=timezone.utc) if existing.ingested_at.tzinfo is None else existing.ingested_at)
+            ingested_at = existing.ingested_at or datetime.now(UTC)
+            if ingested_at.tzinfo is None:
+                ingested_at = ingested_at.replace(tzinfo=UTC)
+            age = datetime.now(UTC) - ingested_at
             if age < timedelta(days=config.INGESTION_REFRESH_DAYS):
-                logger.info(f"Ingestion cache hit for {repo_id} (age: {age}). Skipping re-fetch.")
-                # Ensure progress shows 100% for the frontend polling
                 existing.progress_pct = 100
                 existing.status_message = "Complete!"
                 db.commit()
                 return {"repo_id": repo_id, "status": "cached"}
     finally:
         db.close()
-        
+
     background_tasks.add_task(ingest_repository, request.repo_url)
     return {"repo_id": repo_id, "status": "queued"}
 
@@ -112,15 +118,12 @@ def get_ingestion_status(owner: str, repo: str):
     try:
         ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
         if not ingestion:
-            return {"status": "not_found", "ingested_at": None, "progress_pct": 0, "status_message": None}
-            
-        latency_data = None
-        if ingestion.latency_info:
-            try:
-                latency_data = json.loads(ingestion.latency_info)
-            except Exception:
-                pass
-                
+            return {
+                "status": "not_found",
+                "ingested_at": None,
+                "progress_pct": 0,
+                "status_message": None,
+            }
         return {
             "status": ingestion.status,
             "ingested_at": ingestion.ingested_at,
@@ -128,465 +131,275 @@ def get_ingestion_status(owner: str, repo: str):
             "status_message": ingestion.status_message,
             "issue_count": ingestion.issue_count,
             "pr_count": ingestion.pr_count,
-            "latency_info": latency_data
         }
     finally:
         db.close()
 
 
-@app.post("/repos/{owner}/{repo}/onboard")
-def onboard_developer(owner: str, repo: str, request: OnboardRequest):
+ASK_STAGES = ["summary", "docs", "history", "file_selection", "code_read", "answering"]
+
+
+def _ask_event(stage: str, status: str, **extra) -> dict:
+    event = {"stage": stage, "status": status, "ts": datetime.now(UTC).isoformat()}
+    event.update(extra)
+    return event
+
+
+def _select_code_files(repo_id: str, question: str, file_tree: list[str]) -> list[str]:
+    """Tier 2 step 1: ask the LLM which files to read (read-only selection)."""
+    if not file_tree:
+        return []
+    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    tree_text = "\n".join(file_tree)
+    response = client.chat.completions.create(
+        model=config.LLM_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a code exploration assistant. Given a repository file "
+                    "tree and a question, list up to "
+                    f"{config.MAX_SELECTED_FILES} file paths most likely to contain "
+                    "the answer. Respond with ONLY a JSON array of path strings, "
+                    "no explanations."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"File tree:\n{tree_text}\n\nQuestion: {question}",
+            },
+        ],
+        temperature=0.0,
+        max_tokens=512,
+    )
+    raw = response.choices[0].message.content or "[]"
+    match = re.search(r"\[.*\]", raw, re.DOTALL)
+    if not match:
+        return []
+    selected = json.loads(match.group(0))
+    tree_set = set(file_tree)
+    return [p for p in selected if isinstance(p, str) and p in tree_set]
+
+
+def _ask_pipeline(owner: str, repo: str, question: str):
+    """Run the three-tier Q&A pipeline, yielding progress events as it goes.
+
+    Events are dicts: {"stage", "status", "ts", ...stage-specific detail}.
+    The final event is stage="done" and carries the full answer payload.
+    On failure, a stage="error" event is yielded and the generator stops.
+    """
     repo_id = f"{owner}/{repo}"
-    bg_hash = hashlib.sha256(request.user_background.encode("utf-8")).hexdigest()
-    
+    logger.info(f"Q&A for {repo_id}: {question[:80]}...")
+
+    # ---- Tier 0: repository summary (DNA) ----
+    yield _ask_event("summary", "started")
     db = next(get_db())
     try:
-        cached_guide = db.query(OnboardingGuide).filter_by(
-            repo_id=repo_id,
-            background_hash=bg_hash
-        ).first()
-        
-        if cached_guide:
-            time_limit = datetime.now(timezone.utc) - timedelta(hours=24)
-            created_at_naive = cached_guide.created_at.replace(tzinfo=None) if cached_guide.created_at.tzinfo is not None else cached_guide.created_at
-            time_limit_naive = time_limit.replace(tzinfo=None)
-            
-            if created_at_naive > time_limit_naive:
-                logger.info(f"Returning cached onboarding guide for {repo_id}...")
-                from agent.onboarding_workflow import OnboardingState, hybrid_search_issues
-                state = {
-                    "repo_id": repo_id,
-                    "user_background": request.user_background,
-                    "dna_summary": "",
-                    "background_hash": bg_hash,
-                    "search_queries": [request.user_background],
-                    "retrieved_issues": [],
-                    "guide": cached_guide.guide,
-                    "error": None
-                }
-                state = hybrid_search_issues(state)
-                
-                cached_latency = None
-                if cached_guide.latency_info:
-                    try:
-                        cached_latency = json.loads(cached_guide.latency_info)
-                    except Exception:
-                        pass
-                        
-                return {
-                    "guide": cached_guide.guide,
-                    "issues": state["retrieved_issues"],
-                    "trace": {
-                        "queries": state["search_queries"],
-                        "cached": True,
-                        "latency_info": cached_latency
-                    }
-                }
+        ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
+        dna_summary = ingestion.dna_summary if ingestion else ""
     finally:
         db.close()
-            
-    logger.info(f"Cache miss for {repo_id}. Running onboarding workflow...")
-    workflow_result = run_onboarding_workflow(repo_id, request.user_background)
-    
-    if workflow_result.get("error"):
-        raise HTTPException(status_code=400, detail=workflow_result["error"])
-        
+    yield _ask_event("summary", "done", has_summary=bool(dna_summary))
+
+    # ---- Tier 1: docs, injected directly under a character budget ----
+    yield _ask_event("docs", "started")
+    docs_context = build_docs_context(repo_id)
+    yield _ask_event("docs", "done", chars=len(docs_context))
+
+    # ---- Tier 3: history (issues/PRs) via keyword RAG ----
+    yield _ask_event("history", "started")
+    history = keyword_search(repo_id, question, top_k=config.KEYWORD_TOP_K)
+    yield _ask_event("history", "done", hits=len(history))
+
+    # ---- Tier 2: code, read-only tool access on the local workspace ----
+    files_read: list[str] = []
+    code_context = ""
+    workspace = get_workspace(repo_id)
+    if workspace:
+        try:
+            reader = CodeReader(workspace)
+            file_tree = reader.list_files()
+            yield _ask_event("file_selection", "started", candidates=len(file_tree))
+            selected = _select_code_files(repo_id, question, file_tree)
+            yield _ask_event("file_selection", "done", selected=selected)
+
+            yield _ask_event("code_read", "started")
+            code_context, files_read = build_code_context(workspace, selected)
+            yield _ask_event("code_read", "done", files=files_read)
+        except Exception as exc:
+            logger.warning(f"Code retrieval skipped for {repo_id}: {exc}")
+            yield _ask_event("code_read", "skipped", detail=str(exc))
+    else:
+        yield _ask_event("code_read", "skipped", detail="no workspace (not ingested)")
+
+    # ---- Compose the three tiers into one prompt ----
+    system_prompt = (
+        "You are a helpful repository assistant. Answer the user's question using "
+        "only the provided repository context. Cite specific files or issue numbers "
+        "when possible. If you do not know, say so."
+    )
+
+    context_text = f"Repository: {repo_id}\n\n## Repository summary\n"
+    context_text += dna_summary or "No repository summary available."
+    if docs_context:
+        context_text += f"\n\n## Documentation\n{docs_context}"
+    if code_context:
+        context_text += f"\n\n## Code (files read: {', '.join(files_read)})\n{code_context}"
+    if history:
+        history_lines = "\n".join(
+            f"- #{item['number']} ({item['type']}, {item['state']}): {item['title']}"
+            for item in history
+        )
+        context_text += f"\n\n## Related issues and pull requests\n{history_lines}"
+
+    user_prompt = f"{context_text}\n\nQuestion: {question}"
+
+    yield _ask_event("answering", "started")
+    try:
+        client = OpenAI(api_key=config.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model=config.LLM_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=1024,
+        )
+        answer = response.choices[0].message.content or ""
+    except Exception as exc:
+        logger.exception(f"Q&A failed for {repo_id}: {exc}")
+        yield _ask_event("error", "failed", detail=f"Q&A failed: {exc}")
+        return
+
+    result = {
+        "repo_id": repo_id,
+        "question": question,
+        "answer": answer,
+        "sources": {
+            "docs_chars": len(docs_context),
+            "code_files_read": files_read,
+            "history": history,
+        },
+    }
+    yield _ask_event("done", "done", result=result)
+
+@app.post("/repos/{owner}/{repo}/ask")
+def ask_about_repo(owner: str, repo: str, request: AskRequest):
+    """Non-streaming Q&A: runs the pipeline and returns only the final result."""
+    final = None
+    error_detail = "Q&A failed"
+    for event in _ask_pipeline(owner, repo, request.question):
+        if event["stage"] == "done":
+            final = event["result"]
+        elif event["stage"] == "error":
+            error_detail = event.get("detail", error_detail)
+    if final is None:
+        raise HTTPException(status_code=500, detail=error_detail)
+    return final
+
+
+@app.get("/repos/{owner}/{repo}/ask/stream")
+def ask_about_repo_stream(owner: str, repo: str, question: str):
+    """Server-Sent Events endpoint: streams live pipeline progress + answer."""
+    from fastapi.responses import StreamingResponse
+
+    def event_stream():
+        for event in _ask_pipeline(owner, repo, question):
+            yield f"data: {json.dumps(event)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/repos/{owner}/{repo}/fix")
+@app.post("/repos/{owner}/{repo}/fix")
+def fix_issue(owner: str, repo: str, request: FixRequest):
+    repo_id = f"{owner}/{repo}"
+    logger.info(f"Issue→PR for {repo_id}: {request.issue_description[:80]}...")
+
     db = next(get_db())
     try:
-        stale_guide = db.query(OnboardingGuide).filter_by(repo_id=repo_id, background_hash=bg_hash).first()
-        if stale_guide:
-            stale_guide.guide = workflow_result["guide"]
-            stale_guide.created_at = datetime.now(timezone.utc)
-            stale_guide.latency_info = json.dumps(workflow_result.get("latency_info", {}))
-        else:
-            new_guide = OnboardingGuide(
-                repo_id=repo_id,
-                background_hash=bg_hash,
-                guide=workflow_result["guide"],
-                latency_info=json.dumps(workflow_result.get("latency_info", {}))
+        ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
+        if not ingestion or ingestion.status != "complete":
+            raise HTTPException(
+                status_code=400,
+                detail="Repository has not been ingested yet. Call /repos/ingest first.",
             )
-            db.add(new_guide)
-        db.commit()
+        dna_summary = ingestion.dna_summary or ""
     finally:
         db.close()
-    
+
+    context = keyword_search(repo_id, request.issue_description, top_k=config.KEYWORD_TOP_K)
+    planner = Planner()
+    plan = planner.plan(
+        repo_id=repo_id,
+        issue_description=request.issue_description,
+        context={"dna_summary": dna_summary, "related_issues": context},
+    )
+
+    executor = Executor(repo_id=repo_id)
+    execution_result = executor.execute(plan)
+
+    verifier = Verifier(repo_id=repo_id)
+    verification_result = verifier.verify(
+        execution_result, issue_description=request.issue_description
+    )
+
+    summary = (
+        f"Planned a fix for: {request.issue_description}\n\n"
+        f"Plan:\n{plan['plan']}\n\n"
+        f"Verification:\n{verification_result['review']}"
+    )
+
     return {
-        "guide": workflow_result["guide"],
-        "issues": workflow_result["retrieved_issues"],
-        "trace": {
-            "queries": workflow_result["search_queries"],
-            "cached": False,
-            "latency_info": workflow_result.get("latency_info", {})
-        }
+        "repo_id": repo_id,
+        "issue": request.issue_description,
+        "plan": plan["plan"],
+        "diff": execution_result["diff"],
+        "verification": verification_result,
+        "summary": summary,
     }
 
 
-@app.post("/repos/{owner}/{repo}/feedback")
-def submit_onboarding_feedback(owner: str, repo: str, request: FeedbackRequest):
+@app.post("/repos/{owner}/{repo}/refine")
+def refine_fix(owner: str, repo: str, request: RefineRequest):
     repo_id = f"{owner}/{repo}"
-    db = next(get_db())
-    try:
-        feedback = UserFeedback(
-            repo_id=repo_id,
-            background_hash=request.background_hash,
-            rating=request.rating,
-            session_id=request.session_id
-        )
-        db.add(feedback)
-        db.commit()
-    finally:
-        db.close()
-    return {"saved": True}
+    logger.info(f"Refinement for {repo_id}: {request.feedback[:80]}...")
+
+    # In a full implementation, session state would be persisted and re-executed.
+    # Here we return a structured response that the frontend can use to re-run /fix.
+    return {
+        "repo_id": repo_id,
+        "session_id": request.session_id,
+        "feedback": request.feedback,
+        "message": "Incorporate this feedback and re-submit the issue description to /fix.",
+    }
 
 
-@app.get("/repos/{owner}/{repo}/chat/history")
-def get_chat_history(owner: str, repo: str, session_id: str):
-    db = next(get_db())
-    try:
-        messages = db.query(ChatMessage).filter_by(session_id=session_id).order_by(ChatMessage.created_at.asc()).all()
-        return [{"role": m.role, "content": m.content, "created_at": m.created_at} for m in messages]
-    finally:
-        db.close()
-
-
-@app.post("/repos/{owner}/{repo}/chat")
-def chat_with_agent(owner: str, repo: str, request: ChatRequest, background_tasks: BackgroundTasks):
+@app.post("/repos/{owner}/{repo}/pulls")
+def open_pull_request(owner: str, repo: str, request: PROpenRequest):
     repo_id = f"{owner}/{repo}"
-    
-    db = next(get_db())
+    logger.info(f"Opening PR for {repo_id}: {request.title}")
     try:
-        user_msg = ChatMessage(
-            session_id=request.session_id,
-            role="user",
-            content=request.message
+        client = PullRequestClient()
+        pr = client.open_pr(
+            owner=owner,
+            repo=repo,
+            title=request.title,
+            body=request.body,
+            head_branch=request.head_branch,
+            base_branch=request.base_branch,
         )
-        db.add(user_msg)
-        db.commit()
-        
-        db_history = db.query(ChatMessage).filter_by(session_id=request.session_id).order_by(ChatMessage.created_at.asc()).all()
-    finally:
-        db.close()
-        
-    # Check rule-based Orchestrator first
-    db_orch = next(get_db())
-    try:
-        from agent.orchestrator import get_orchestrator
-        orchestrator = get_orchestrator()
-        route_result = orchestrator.route_message(
-            session_id=request.session_id,
-            repo_id=repo_id,
-            message=request.message,
-            user_background=request.user_background,
-            db=db_orch,
-            background_tasks=background_tasks
-        )
-    finally:
-        db_orch.close()
-
-    if route_result is not None:
-        def orchestrator_event_generator():
-            if route_result["type"] == "handoff_triggered":
-                yield f"data: {json.dumps(route_result)}\n\n"
-            elif route_result["type"] == "chat_response":
-                msg_content = route_result["message"]
-                # Stream the message back as tokens
-                for i in range(0, len(msg_content), 6):
-                    yield f"data: {json.dumps({'type': 'token', 'content': msg_content[i:i+6]})}\n\n"
-                yield f"data: {json.dumps({'type': 'final_answer', 'content': msg_content})}\n\n"
-                
-                # Save assistant response to DB
-                db_save = next(get_db())
-                try:
-                    assistant_msg = ChatMessage(
-                        session_id=request.session_id,
-                        role="assistant",
-                        content=msg_content
-                    )
-                    db_save.add(assistant_msg)
-                    db_save.commit()
-                finally:
-                    db_save.close()
-        return StreamingResponse(orchestrator_event_generator(), media_type="text/event-stream")
-
-    # Regular onboarding agent workflow
-    langchain_messages = []
-    for msg in db_history:
-        if msg.role == "user":
-            langchain_messages.append(HumanMessage(content=msg.content))
-        else:
-            langchain_messages.append(AIMessage(content=msg.content))
-            
-    import json
-    
-    def sse_event_generator():
-        try:
-            agent = get_onboarding_agent()
-            stream = agent.invoke_stream({
-                "messages": langchain_messages,
-                "repo_id": repo_id,
-                "user_background": request.user_background
-            })
-            
-            final_answer = ""
-            for event in stream:
-                if event["type"] == "final_state":
-                    continue
-                if event["type"] == "session_summary":
-                    logger.info(f"Session summary for {repo_id}: selected_issue={event['payload'].get('selected_issue')}, files_explored={len(event['payload'].get('files_explored', []))}")
-                    
-                    # Persist the onboarding session state to db
-                    db_state = next(get_db())
-                    try:
-                        payload = event["payload"]
-                        state = db_state.query(OnboardingSessionState).filter_by(session_id=request.session_id).first()
-                        if not state:
-                            state = OnboardingSessionState(session_id=request.session_id)
-                            db_state.add(state)
-                        state.repo_id = repo_id
-                        state.user_background = request.user_background
-                        state.dna_summary = payload.get("dna_summary")
-                        state.selected_issue = payload.get("selected_issue")
-                        state.files_explored = json.dumps(payload.get("files_explored", []))
-                        state.issues_mentioned = json.dumps(payload.get("issues_mentioned", []))
-                        db_state.commit()
-                    except Exception as err:
-                        logger.error(f"Failed to save OnboardingSessionState: {err}")
-                    finally:
-                        db_state.close()
-                    continue
-                
-                if event["type"] == "final_answer":
-                    final_answer = event["content"]
-                elif event["type"] == "token":
-                    final_answer += event["content"]
-                
-                yield f"data: {json.dumps(event)}\n\n"
-                
-            if final_answer:
-                db_save = next(get_db())
-                try:
-                    assistant_msg = ChatMessage(
-                        session_id=request.session_id,
-                        role="assistant",
-                        content=final_answer
-                    )
-                    db_save.add(assistant_msg)
-                    db_save.commit()
-                finally:
-                    db_save.close()
-                    
-        except Exception as e:
-            logger.exception(f"Chat agent streaming failed for {repo_id}: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-            
-    return StreamingResponse(sse_event_generator(), media_type="text/event-stream")
-
-
-@app.post("/repos/{owner}/{repo}/handoff")
-def start_handoff(owner: str, repo: str, request: HandoffStartRequest, background_tasks: BackgroundTasks):
-    repo_id = f"{owner}/{repo}"
-    db = next(get_db())
-    try:
-        from agent.orchestrator import get_orchestrator
-        orchestrator = get_orchestrator()
-        orchestrator.trigger_handoff(
-            session_id=request.session_id,
-            repo_id=repo_id,
-            selected_issue=request.selected_issue,
-            user_background=request.user_background,
-            db=db,
-            background_tasks=background_tasks,
-            steering_instructions=request.steering_instructions
-        )
-        return {"status": "started", "session_id": request.session_id}
-    except Exception as e:
-        logger.exception(f"Handoff trigger failed for {repo_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-
-@app.get("/repos/{owner}/{repo}/handoff/status")
-def get_handoff_status(owner: str, repo: str, session_id: str):
-    repo_id = f"{owner}/{repo}"
-    db = next(get_db())
-    try:
-        handoff = db.query(HandoffSession).filter_by(session_id=session_id).first()
-        if not handoff:
-            return {"status": "not_found", "progress_pct": 0, "logs": "", "patch_diff": None}
         return {
-            "status": handoff.status,
-            "progress_pct": handoff.progress_pct,
-            "logs": handoff.logs,
-            "patch_diff": handoff.patch_diff,
-            "selected_issue": handoff.selected_issue
+            "repo_id": repo_id,
+            "pr_number": pr.get("number"),
+            "html_url": pr.get("html_url"),
         }
-    finally:
-        db.close()
-
-
-class FileSaveRequest(BaseModel):
-    path: str
-    content: str
-
-def build_file_tree(dir_path: Path, root_path: Path) -> list[dict]:
-    import os
-    items = []
-    try:
-        for entry in os.scandir(dir_path):
-            name = entry.name
-            
-            # Filter heavy folders
-            skip_names = {
-                ".git", "node_modules", "venv", ".venv", "__pycache__", 
-                ".pytest_cache", ".egg-info", "dist", "build", ".chroma_db",
-                ".gemini", ".system_generated", "logs"
-            }
-            if name in skip_names:
-                continue
-            if name.startswith("."):
-                if name not in (".env", ".env.example", ".gitignore"):
-                    continue
-                    
-            rel_path = os.path.relpath(entry.path, root_path)
-            
-            if entry.is_dir(follow_symlinks=False):
-                children = build_file_tree(Path(entry.path), root_path)
-                items.append({
-                    "name": name,
-                    "path": rel_path,
-                    "type": "directory",
-                    "children": children
-                })
-            else:
-                items.append({
-                    "name": name,
-                    "path": rel_path,
-                    "type": "file"
-                })
-    except Exception as e:
-        logger.error(f"Error building file tree for {dir_path}: {e}")
-        
-    items.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
-    return items
-
-
-@app.get("/repos/{owner}/{repo}/files/tree")
-def get_repo_file_tree(owner: str, repo: str):
-    import config
-    owner_repo_dir = config.REPOS_CLONE_DIR / owner / repo
-    if not owner_repo_dir.exists():
-        from ingestion.ingestion_pipeline import clone_repository_locally
-        clone_repository_locally(owner, repo)
-        
-    if not owner_repo_dir.exists():
-        raise HTTPException(status_code=404, detail="Repository clone directory not found.")
-    
-    tree = build_file_tree(owner_repo_dir, owner_repo_dir)
-    return tree
-
-
-@app.get("/repos/{owner}/{repo}/files/content")
-def get_repo_file_content(owner: str, repo: str, path: str):
-    import config
-    owner_repo_dir = (config.REPOS_CLONE_DIR / owner / repo).resolve()
-    if not owner_repo_dir.exists():
-        raise HTTPException(status_code=404, detail="Repository clone directory not found.")
-        
-    target_path = (owner_repo_dir / path.strip("/")).resolve()
-    if not target_path.is_relative_to(owner_repo_dir):
-        raise HTTPException(status_code=400, detail="Path traversal attempt blocked.")
-        
-    if not target_path.exists():
-        raise HTTPException(status_code=404, detail=f"File '{path}' not found.")
-        
-    if target_path.is_dir():
-        raise HTTPException(status_code=400, detail=f"'{path}' is a directory.")
-        
-    try:
-        with open(target_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-        return {"path": path, "content": content}
-    except Exception as e:
-        logger.error(f"Error reading file {path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
-
-
-@app.post("/repos/{owner}/{repo}/files/content")
-def save_repo_file_content(owner: str, repo: str, request: FileSaveRequest):
-    import config
-    owner_repo_dir = (config.REPOS_CLONE_DIR / owner / repo).resolve()
-    if not owner_repo_dir.exists():
-        raise HTTPException(status_code=404, detail="Repository clone directory not found.")
-        
-    target_path = (owner_repo_dir / request.path.strip("/")).resolve()
-    if not target_path.is_relative_to(owner_repo_dir):
-        raise HTTPException(status_code=400, detail="Path traversal attempt blocked.")
-        
-    try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(target_path, "w", encoding="utf-8") as f:
-            f.write(request.content)
-        return {"saved": True, "path": request.path}
-    except Exception as e:
-        logger.error(f"Error saving file {request.path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
-
-
-class SandboxRunRequest(BaseModel):
-    session_id: str
-    command: str
-
-def execute_sandbox_run_task(repo_id: str, session_id: str, command: str):
-    from utils.sandbox import run_sandbox_command
-    from datetime import datetime, timezone
-    
-    db = SessionLocal()
-    try:
-        handoff = db.query(HandoffSession).filter_by(session_id=session_id).first()
-        if handoff:
-            timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            handoff.status = "verification"
-            handoff.logs = (handoff.logs or "") + f"[{timestamp}] [USER COMMAND] Running command: {command}\n"
-            db.commit()
-    finally:
-        db.close()
-        
-    exit_code, stdout, stderr = run_sandbox_command(repo_id, command)
-    
-    db = SessionLocal()
-    try:
-        handoff = db.query(HandoffSession).filter_by(session_id=session_id).first()
-        if handoff:
-            timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            output = stdout or stderr or "(No output)"
-            handoff.logs = (handoff.logs or "") + f"[{timestamp}] Command output (exit code {exit_code}):\n{output}\n"
-            handoff.status = "completed" if exit_code == 0 else "failed"
-            db.commit()
-    finally:
-        db.close()
-
-@app.post("/repos/{owner}/{repo}/sandbox/run")
-def run_sandbox_cmd_endpoint(owner: str, repo: str, request: SandboxRunRequest, background_tasks: BackgroundTasks):
-    repo_id = f"{owner}/{repo}"
-    
-    # Initialize handoff session if not exists
-    db = next(get_db())
-    try:
-        handoff = db.query(HandoffSession).filter_by(session_id=request.session_id).first()
-        if not handoff:
-            handoff = HandoffSession(
-                session_id=request.session_id,
-                repo_id=repo_id,
-                selected_issue=0,
-                user_background="User sandbox test run",
-                status="pending",
-                logs=""
-            )
-            db.add(handoff)
-            db.commit()
-    finally:
-        db.close()
-        
-    background_tasks.add_task(execute_sandbox_run_task, repo_id, request.session_id, request.command)
-    return {"status": "started"}
+    except Exception as exc:
+        logger.exception(f"Failed to open PR for {repo_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to open PR: {exc}") from exc

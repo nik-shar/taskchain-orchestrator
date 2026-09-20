@@ -1,95 +1,80 @@
 import pytest
-import time
-import httpx
 from unittest.mock import MagicMock, patch
-from ingestion.github_fetcher import (
+
+from ingestion.github_indexer import (
     parse_github_url,
     should_skip_file,
     chunk_text,
     detect_tech_stack,
-    GitHubFetcher
+    GitHubIndexer,
 )
+
 
 def test_parse_github_url():
     assert parse_github_url("https://github.com/tiangolo/fastapi") == ("tiangolo", "fastapi")
     assert parse_github_url("https://github.com/tiangolo/fastapi.git") == ("tiangolo", "fastapi")
     assert parse_github_url("https://github.com/tiangolo/fastapi/") == ("tiangolo", "fastapi")
 
+
 def test_should_skip_file():
-    # Always keep
-    assert should_skip_file("README.md", 1000000) is False
-    assert should_skip_file("pyproject.toml", 500000) is False
-    # Skip extensions
+    assert should_skip_file("README.md", 1_000_000) is False
+    assert should_skip_file("pyproject.toml", 500_000) is False
     assert should_skip_file("weights.pt", 100) is True
-    # Skip path
     assert should_skip_file("data/raw.json", 100) is True
-    # Max size
-    assert should_skip_file("src/main.py", 100001) is True
-    # Keep normal file
+    assert should_skip_file("src/main.py", 100_001) is True
     assert should_skip_file("src/main.py", 500) is False
 
+
 def test_chunk_text():
-    short_text = "Hello World"
-    assert chunk_text(short_text) == [short_text]
-    
+    assert chunk_text("Hello World") == ["Hello World"]
     long_text = "a" * 1500
     chunks = chunk_text(long_text, chunk_size=500, overlap=100)
     assert len(chunks) > 1
     assert all(len(c) == 500 for c in chunks[:-1])
     assert len(chunks[-1]) <= 500
 
+
 def test_detect_tech_stack():
-    # Javascript
     js_files = {"package.json": '{"dependencies": {"react": "^18.0.0"}}'}
     assert detect_tech_stack(js_files)["language"] == "JavaScript/TypeScript"
     assert "react" in detect_tech_stack(js_files)["frameworks"]
-    
-    # Python
-    py_files = {"requirements.txt": "fastapi>=0.100.0\nsqlalchemy", "Dockerfile": "FROM python"}
+
+    py_files = {
+        "requirements.txt": "fastapi>=0.100.0\nsqlalchemy",
+        "Dockerfile": "FROM python",
+    }
     tech = detect_tech_stack(py_files)
     assert tech["language"] == "Python"
     assert "fastapi" in tech["frameworks"]
     assert "Docker" in tech["build_tools"]
 
-@patch("ingestion.github_fetcher.check_rate_limit")
+
+@patch("ingestion.github_indexer.check_rate_limit")
 @patch("httpx.Client.get")
 def test_fetcher_invokes_endpoints(mock_get, mock_check_rate_limit):
-    # Setup response mocks
-    mock_meta = MagicMock()
-    mock_meta.status_code = 200
-    mock_meta.json.return_value = {
+    def make_mock(status_code, json_data=None, text=""):
+        m = MagicMock()
+        m.status_code = status_code
+        if json_data is not None:
+            m.json.return_value = json_data
+        m.text = text
+        return m
+
+    mock_meta = make_mock(200, {
         "stargazers_count": 10,
         "language": "Python",
         "description": "Test Repo",
-        "topics": ["test"]
-    }
-    
-    mock_readme = MagicMock()
-    mock_readme.status_code = 200
-    # base64 encoded readme: "README info"
-    mock_readme.json.return_value = {"content": "UkVBRE1FIGluZm8="}
-    
-    mock_contrib = MagicMock()
-    mock_contrib.status_code = 404 # No contributing doc
-    
-    mock_contents = MagicMock()
-    mock_contents.status_code = 200
-    mock_contents.json.return_value = [
+        "topics": ["test"],
+    })
+    mock_readme = make_mock(200, {"content": "UkVBRE1FIGluZm8="})
+    mock_contrib = make_mock(404)
+    mock_contents = make_mock(200, [
         {"path": "requirements.txt", "type": "file", "url": "https://api.github.com/file/reqs"},
-        {"path": "src", "type": "dir"}
-    ]
-    
-    mock_reqs = MagicMock()
-    mock_reqs.status_code = 200
-    # base64 encoded reqs: "fastapi"
-    mock_reqs.json.return_value = {"content": "ZmFzdGFwaQ=="}
-
-    mock_github_dir = MagicMock()
-    mock_github_dir.status_code = 404
-    
-    mock_issues = MagicMock()
-    mock_issues.status_code = 200
-    mock_issues.json.return_value = [
+        {"path": "src", "type": "dir"},
+    ])
+    mock_reqs = make_mock(200, {"content": "ZmFzdGFwaQ=="})
+    mock_github_dir = make_mock(404)
+    mock_issues = make_mock(200, [
         {
             "number": 1,
             "title": "Bug 1",
@@ -97,47 +82,40 @@ def test_fetcher_invokes_endpoints(mock_get, mock_check_rate_limit):
             "state": "open",
             "labels": [{"name": "bug"}, {"name": "good first issue"}],
             "created_at": "2026-06-08T12:00:00Z",
-            "closed_at": None
+            "closed_at": None,
         }
-    ]
-    
-    mock_comments = MagicMock()
-    mock_comments.status_code = 200
-    mock_comments.json.return_value = [{"body": "Comment 1"}]
-    
-    mock_prs = MagicMock()
-    mock_prs.status_code = 200
-    mock_prs.json.return_value = [
+    ])
+    mock_comments = make_mock(200, [{"body": "Comment 1"}])
+    mock_prs = make_mock(200, [
         {
             "number": 2,
             "title": "PR 1",
             "body": "Fixes #1",
             "state": "closed",
             "merged_at": "2026-06-08T12:30:00Z",
-            "created_at": "2026-06-08T12:15:00Z"
+            "created_at": "2026-06-08T12:15:00Z",
         }
-    ]
-    
-    # Side effects to match fetcher requests order
+    ])
+
     mock_get.side_effect = [
-        mock_meta,       # meta
-        mock_readme,     # readme
-        mock_contrib,    # contributing
-        mock_contents,   # contents list
-        mock_reqs,       # reqs content
-        mock_github_dir, # .github dir check
-        mock_issues,     # open issues
-        mock_issues,     # closed issues p1
-        mock_issues,     # closed issues p2 (empty or same)
-        mock_comments,   # comments for issue 1 (from open)
-        mock_comments,   # comments for issue 1 (from closed p1)
-        mock_comments,   # comments for issue 1 (from closed p2)
-        mock_prs,        # closed pulls
+        mock_meta,
+        mock_readme,
+        mock_contrib,
+        mock_contents,
+        mock_reqs,
+        mock_github_dir,
+        mock_issues,
+        mock_issues,
+        mock_issues,
+        mock_comments,
+        mock_comments,
+        mock_comments,
+        mock_prs,
     ]
-    
-    fetcher = GitHubFetcher(github_token="dummy")
+
+    fetcher = GitHubIndexer(github_token="dummy")
     snapshot = fetcher.fetch_repo("https://github.com/owner/repo")
-    
+
     assert snapshot.owner == "owner"
     assert snapshot.repo == "repo"
     assert snapshot.metadata["stars"] == 10
