@@ -4,6 +4,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Keep lint output limited to first-party code: `venv/` is a local environment and
+# `data/` holds generated indexes and repo snapshots.
+extend-exclude = ["venv", "data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

@@ -1,11 +1,7 @@
-import sqlite3
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
-
-import pytest
+from datetime import UTC, datetime
 
 import config
-from ingestion.github_indexer import RepoSnapshot, Issue, PR
+from ingestion.github_indexer import PR, Issue, RepoSnapshot
 from ingestion.sqlite_indexer import index_issues_and_prs, keyword_search
 
 
@@ -13,7 +9,7 @@ def _make_snapshot():
     return RepoSnapshot(
         owner="test_owner",
         repo="test_repo",
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
         metadata={},
         readme="README",
         contributing="CONTRIBUTING",
@@ -27,7 +23,7 @@ def _make_snapshot():
                 state="open",
                 labels=["bug", "good first issue"],
                 comments=[],
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 closed_at=None,
                 is_good_first_issue=True,
             )
@@ -40,7 +36,7 @@ def _make_snapshot():
                 state="closed",
                 merged=True,
                 linked_issue=1,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
         ],
     )

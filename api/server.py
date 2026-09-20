@@ -317,7 +317,6 @@ def ask_about_repo_stream(owner: str, repo: str, question: str):
 
 
 @app.post("/repos/{owner}/{repo}/fix")
-@app.post("/repos/{owner}/{repo}/fix")
 def fix_issue(owner: str, repo: str, request: FixRequest):
     repo_id = f"{owner}/{repo}"
     logger.info(f"Issue→PR for {repo_id}: {request.issue_description[:80]}...")

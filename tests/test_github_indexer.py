@@ -1,12 +1,11 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from ingestion.github_indexer import (
-    parse_github_url,
-    should_skip_file,
+    GitHubIndexer,
     chunk_text,
     detect_tech_stack,
-    GitHubIndexer,
+    parse_github_url,
+    should_skip_file,
 )
 
 

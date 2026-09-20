@@ -2,8 +2,9 @@
 import logging
 from typing import Any
 
-import config
 from openai import OpenAI
+
+import config
 
 logger = logging.getLogger(__name__)
 

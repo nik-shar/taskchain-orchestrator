@@ -16,12 +16,22 @@ def test_ingest_invalid_url():
     assert response.status_code == 400
 
 
-def test_ask_without_ingestion():
+def test_ask_without_ingestion(mock_llm):
+    """Q&A degrades gracefully: with no ingestion every context tier is empty, so
+    the pipeline still answers rather than erroring, reporting empty sources."""
     response = client.post(
         "/repos/owner/repo/ask",
         json={"question": "What does this repo do?"},
     )
-    assert response.status_code == 500
+    assert response.status_code == 200
+    body = response.json()
+    assert body["repo_id"] == "owner/repo"
+    assert body["answer"] == "Stubbed answer."
+    assert body["sources"]["code_files_read"] == []
+    assert body["sources"]["history"] == []
+    # Exactly one LLM call: the answering step (file selection is skipped because
+    # there is no workspace for this repo).
+    mock_llm.chat.completions.create.assert_called_once()
 
 
 def test_fix_without_ingestion():

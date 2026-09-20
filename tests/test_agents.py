@@ -1,7 +1,7 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from agent.planner import Planner
 from agent.executor import Executor
+from agent.planner import Planner
 from agent.verifier import Verifier
 
 

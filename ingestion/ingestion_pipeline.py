@@ -1,5 +1,4 @@
 """End-to-end ingestion pipeline for a GitHub repository."""
-import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -53,21 +52,6 @@ def generate_repo_dna_summary(snapshot) -> str:
         f"- Closed issues/PRs indexed: {len(snapshot.issues) + len(snapshot.pull_requests)}",
     ])
     return "\n".join(lines)
-
-
-def _mark_failed(owner: str, repo: str, message: str) -> None:
-    """Mark an ingestion as failed; best-effort, never raises."""
-    db = SessionLocal()
-    try:
-        ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
-        if ingestion:
-            ingestion.status = "failed"
-            ingestion.status_message = f"Failed: {message}"[:255]
-            db.commit()
-    except Exception as db_err:
-        logger.error(f"Failed to record ingestion failure in DB: {db_err}")
-    finally:
-        db.close()
 
 
 def ingest_repository(repo_url: str) -> dict:
@@ -147,10 +131,19 @@ def ingest_repository(repo_url: str) -> dict:
                 ingestion.status = "complete"
                 ingestion.progress_pct = 100
                 ingestion.status_message = "Complete!"
-                ingestion.latency_info = json.dumps(latency_info)
                 db.commit()
         finally:
             db.close()
+
+        # Emit the latency breakdown as a structured log field instead of a DB
+        # column: JSONFormatter consumes `custom_fields`, and persisting it would
+        # need a migration for databases created before such a column existed.
+        logger.info(
+            "Ingestion latency for %s: %s",
+            repo_id,
+            ", ".join(f"{name}={value:.2f}s" for name, value in latency_info.items()),
+            extra={"custom_fields": {"latency_info": latency_info}},
+        )
 
         logger.info(f"Ingestion completed successfully for {repo_id}!")
         return {

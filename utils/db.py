@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
-from sqlalchemy import create_engine, Boolean, Column, Integer, String, DateTime, Text
+from datetime import UTC, datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 import config
@@ -14,7 +15,7 @@ class RepoIngestion(Base):
     owner = Column(String(255), nullable=False)
     repo = Column(String(255), nullable=False)
     ingested_at = Column(
-        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
     issue_count = Column(Integer, default=0)
     pr_count = Column(Integer, default=0)
