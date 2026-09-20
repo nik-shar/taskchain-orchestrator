@@ -159,6 +159,28 @@ body {
   display: none;
 }
 
+.status-badge.passed {
+  background: rgba(46, 125, 50, 0.12);
+  color: #2e7d32;
+}
+
+.status-badge.failed {
+  background: rgba(184, 92, 56, 0.12);
+  color: var(--accent);
+}
+
+.fix-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.fix-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .progress {
   margin-top: 16px;
   display: flex;

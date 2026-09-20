@@ -305,15 +305,24 @@ $("#fixForm").addEventListener("submit", async (e) => {
 
     const box = $("#fixResult");
     box.classList.remove("hidden");
+    const verification = data.verification || {};
+    const badgeClass = data.status === "passed" ? "passed" : "failed";
+    const files = (data.files_changed || []).join(", ") || "none";
     box.innerHTML = `
+      <div class="fix-status">
+        <span class="status-badge ${badgeClass}">${escapeHtml(data.status || "unknown")}</span>
+        <span class="fix-meta">${data.attempts} attempt${data.attempts === 1 ? "" : "s"} · files: ${escapeHtml(files)}</span>
+      </div>
       <h3>Summary</h3>
       <pre class="code-block">${escapeHtml(data.summary)}</pre>
       <h3>Plan</h3>
       <pre class="code-block">${escapeHtml(data.plan)}</pre>
       <h3>Proposed Diff</h3>
       <pre class="code-block">${escapeHtml(data.diff)}</pre>
-      <h3>Verification</h3>
-      <pre class="code-block">${escapeHtml(data.verification.review)}</pre>
+      <h3>Verification: ${escapeHtml(verification.test_command || "no test command")}</h3>
+      <pre class="code-block">${escapeHtml(verification.test_output || "not run")}</pre>
+      <h3>Review (advisory)</h3>
+      <pre class="code-block">${escapeHtml(verification.review || "")}</pre>
     `;
   } catch (err) {
     const box = $("#fixResult");

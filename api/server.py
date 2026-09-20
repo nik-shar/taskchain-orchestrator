@@ -13,9 +13,12 @@ from pydantic import BaseModel
 
 import config
 from agent.code_tools import CodeReader, build_code_context
-from agent.executor import Executor
-from agent.planner import Planner
-from agent.verifier import Verifier
+from agent.orchestrator import (
+    ROUTE_FIX,
+    Orchestrator,
+    route,
+    session_payload,
+)
 from github.pr_client import PullRequestClient
 from ingestion.code_indexer import count_indexed_files, search_code
 from ingestion.docs_collector import build_docs_context
@@ -64,11 +67,29 @@ class RefineRequest(BaseModel):
     feedback: str
 
 
+class DispatchRequest(BaseModel):
+    message: str
+
+
 class PROpenRequest(BaseModel):
     title: str
     body: str
     head_branch: str
     base_branch: str = "main"
+
+
+def _require_ingested(owner: str, repo: str) -> None:
+    """Raise 400 unless the repository has finished ingesting."""
+    db = next(get_db())
+    try:
+        ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
+        if not ingestion or ingestion.status != "complete":
+            raise HTTPException(
+                status_code=400,
+                detail="Repository has not been ingested yet. Call /repos/ingest first.",
+            )
+    finally:
+        db.close()
 
 
 @app.get("/", include_in_schema=False)
@@ -345,66 +366,55 @@ def ask_about_repo_stream(owner: str, repo: str, question: str):
 
 @app.post("/repos/{owner}/{repo}/fix")
 def fix_issue(owner: str, repo: str, request: FixRequest):
+    """Plan, apply and verify a fix; retries when verification fails."""
     repo_id = f"{owner}/{repo}"
-    logger.info(f"Issue→PR for {repo_id}: {request.issue_description[:80]}...")
+    logger.info(f"Fix request for {repo_id}: {request.issue_description[:80]}...")
+    _require_ingested(owner, repo)
 
-    db = next(get_db())
-    try:
-        ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
-        if not ingestion or ingestion.status != "complete":
-            raise HTTPException(
-                status_code=400,
-                detail="Repository has not been ingested yet. Call /repos/ingest first.",
-            )
-        dna_summary = ingestion.dna_summary or ""
-    finally:
-        db.close()
-
-    context = keyword_search(repo_id, request.issue_description, top_k=config.KEYWORD_TOP_K)
-    planner = Planner()
-    plan = planner.plan(
-        repo_id=repo_id,
-        issue_description=request.issue_description,
-        context={"dna_summary": dna_summary, "related_issues": context},
-    )
-
-    executor = Executor(repo_id=repo_id)
-    execution_result = executor.execute(plan)
-
-    verifier = Verifier(repo_id=repo_id)
-    verification_result = verifier.verify(
-        execution_result, issue_description=request.issue_description
-    )
-
-    summary = (
-        f"Planned a fix for: {request.issue_description}\n\n"
-        f"Plan:\n{plan['plan']}\n\n"
-        f"Verification:\n{verification_result['review']}"
-    )
-
-    return {
-        "repo_id": repo_id,
-        "issue": request.issue_description,
-        "plan": plan["plan"],
-        "diff": execution_result["diff"],
-        "verification": verification_result,
-        "summary": summary,
-    }
+    session = Orchestrator().run_fix(repo_id, request.issue_description)
+    return session_payload(session)
 
 
 @app.post("/repos/{owner}/{repo}/refine")
 def refine_fix(owner: str, repo: str, request: RefineRequest):
+    """Re-run execute/verify for an existing session with the user's feedback."""
     repo_id = f"{owner}/{repo}"
     logger.info(f"Refinement for {repo_id}: {request.feedback[:80]}...")
+    _require_ingested(owner, repo)
 
-    # In a full implementation, session state would be persisted and re-executed.
-    # Here we return a structured response that the frontend can use to re-run /fix.
-    return {
-        "repo_id": repo_id,
-        "session_id": request.session_id,
-        "feedback": request.feedback,
-        "message": "Incorporate this feedback and re-submit the issue description to /fix.",
-    }
+    try:
+        session = Orchestrator().refine(request.session_id, request.feedback)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Unknown session_id {request.session_id!r}. Sessions are in memory, so "
+                "they do not survive a restart; start a new run with /fix."
+            ),
+        ) from exc
+    return session_payload(session)
+
+
+@app.post("/repos/{owner}/{repo}/dispatch")
+def dispatch(owner: str, repo: str, request: DispatchRequest):
+    """Route a free-form message to the Q&A path or the fixing path."""
+    repo_id = f"{owner}/{repo}"
+    decision = route(request.message)
+    logger.info(f"Dispatch for {repo_id} -> {decision}: {request.message[:80]}...")
+
+    if decision != ROUTE_FIX:
+        final = None
+        for event in _ask_pipeline(owner, repo, request.message):
+            if event["stage"] == "done":
+                final = event["result"]
+            elif event["stage"] == "error":
+                detail = event.get("detail", "Q&A failed")
+                raise HTTPException(status_code=500, detail=detail)
+        return {"route": decision, "answer": final}
+
+    _require_ingested(owner, repo)
+    session = Orchestrator().run_fix(repo_id, request.message)
+    return {"route": decision, "fix": session_payload(session)}
 
 
 @app.post("/repos/{owner}/{repo}/pulls")

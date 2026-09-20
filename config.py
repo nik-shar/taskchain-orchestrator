@@ -110,3 +110,6 @@ SANDBOX_TEST_COMMAND = os.getenv("SANDBOX_TEST_COMMAND", "").strip() or None
 # Where patch edits are applied, per run. Kept separate from the read-only workspace
 # so the "the LLM never writes to the workspace" invariant still holds.
 WORKTREES_DIR = DATA_DIR / "worktrees"
+
+# Upper bound on execute/verify attempts for one fix request before giving up.
+MAX_FIX_ATTEMPTS = int(os.getenv("MAX_FIX_ATTEMPTS", "2"))

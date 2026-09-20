@@ -81,11 +81,18 @@ graph TD
 
 ```
 ├── agent/
+│   ├── orchestrator.py      # Routes requests; drives plan/execute/verify with retries
 │   ├── planner.py           # Issue/feature analysis and plan generation
-│   ├── executor.py          # Applies code edits, incorporates refinement feedback
-│   └── verifier.py          # Runs tests/lint + reviews diff against requirements
+│   ├── executor.py          # Produces and applies edits; incorporates refinement feedback
+│   ├── verifier.py          # Runs the repo's tests in the sandbox + advisory diff review
+│   ├── patch_tools.py       # Worktree creation, edit application, unified diff extraction
+│   └── code_tools.py        # Read-only list/read/search over the workspace
 ├── api/
-│   └── server.py            # FastAPI application and endpoints
+│   └── server.py            # FastAPI endpoints (ingest/ask/fix/refine/dispatch/pulls)
+├── utils/
+│   ├── sandbox.py           # Hardened Docker execution for agent-authored commands
+│   ├── db.py                # SQLAlchemy models and session factory
+│   └── logging_config.py    # JSON structured logging
 ├── ingestion/
 │   ├── github_indexer.py    # Fetches metadata, issues and PRs from the GitHub API
 │   ├── sqlite_indexer.py    # SQLite FTS5 index + safe query builder for issues/PRs
@@ -117,18 +124,20 @@ Tracking what's already built vs. what's needed to reach the v1 scope above.
 | Feature | Status |
 |---|---|
 | Planner → Executor → Verifier pipeline | ✅ Built |
+| Executor applies real file edits in an isolated git worktree | ✅ Built |
+| Verifier runs the repo's actual test suite in a Docker sandbox (not just LLM judgment) | ✅ Built |
 | SQLite RAG indexing of source code + docs | ✅ Built |
+| GitHub Issues/PRs ingestion into RAG index | ✅ Built (requires `GITHUB_TOKEN`) |
+| Repo-aware Q&A endpoint (chat interface, no Executor) | ✅ Built |
+| Request routing between Q&A and fixing paths | ✅ Built |
+| Conversational patch refinement loop | ✅ Built |
+| Plain-English run summaries | ✅ Built |
+| Free-form feature request input (no issue link required) | ✅ Built |
 | Minimal web dashboard | ✅ Built |
-| GitHub Issues/PRs ingestion into RAG index | ⬜ To build |
-| Repo-aware Q&A endpoint (chat interface, no Executor) | ⬜ To build |
-| Verifier runs actual test suite / linter (not just LLM judgment) | ⬜ To build |
+| Removal of all sandbox-environment code/UI/deps | ✅ Built |
 | Opens real GitHub PRs via API (not just local diff) | ⬜ To build |
-| Conversational patch refinement loop | ⬜ To build |
-| Plain-English run summaries | ⬜ To build |
-| Free-form feature request input (no issue link required) | ⬜ To build |
-| Repo size limits / per-run timeout & cost caps | ⬜ To build |
+| Repo size limits / per-run timeout & cost caps | ⬜ Partial (sandbox timeout + char/file caps; no cost cap) |
 | Hosted deployment (GCP) | ⬜ To build |
-| Removal of all sandbox-environment code/UI/deps | ⬜ To build |
 
 ---
 
