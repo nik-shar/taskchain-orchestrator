@@ -9,7 +9,6 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from openai import OpenAI
 from pydantic import BaseModel
 
 import config
@@ -22,6 +21,7 @@ from ingestion.docs_collector import build_docs_context
 from ingestion.ingestion_pipeline import ingest_repository
 from ingestion.sqlite_indexer import keyword_search
 from ingestion.workspace import get_workspace
+from llm.client import build_llm_client, resolve_llm_settings
 from utils.db import RepoIngestion, get_db, init_db
 from utils.logging_config import setup_logging
 
@@ -149,10 +149,11 @@ def _select_code_files(repo_id: str, question: str, file_tree: list[str]) -> lis
     """Tier 2 step 1: ask the LLM which files to read (read-only selection)."""
     if not file_tree:
         return []
-    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    settings = resolve_llm_settings()
+    client = build_llm_client(settings)
     tree_text = "\n".join(file_tree)
     response = client.chat.completions.create(
-        model=config.LLM_MODEL,
+        model=settings.model,
         messages=[
             {
                 "role": "system",
@@ -256,9 +257,10 @@ def _ask_pipeline(owner: str, repo: str, question: str):
 
     yield _ask_event("answering", "started")
     try:
-        client = OpenAI(api_key=config.OPENAI_API_KEY)
+        settings = resolve_llm_settings()
+        client = build_llm_client(settings)
         response = client.chat.completions.create(
-            model=config.LLM_MODEL,
+            model=settings.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

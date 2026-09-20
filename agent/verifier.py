@@ -2,9 +2,7 @@
 import logging
 from typing import Any
 
-from openai import OpenAI
-
-import config
+from llm.client import build_llm_client, resolve_llm_settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +12,9 @@ class Verifier:
 
     def __init__(self, repo_id: str, model: str | None = None):
         self.repo_id = repo_id
-        self.model = model or config.LLM_MODEL
-        self.client = OpenAI(api_key=config.OPENAI_API_KEY)
+        settings = resolve_llm_settings()
+        self.model = model or settings.model
+        self.client = build_llm_client(settings)
 
     def verify(
         self,

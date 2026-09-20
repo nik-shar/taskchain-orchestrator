@@ -129,7 +129,7 @@ Tracking what's already built vs. what's needed to reach the v1 scope above.
 
 ### Prerequisites
 - Python 3.10 or higher
-- An OpenAI API key
+- An API key for any OpenAI-compatible LLM provider (OpenAI, Nebius, DeepSeek, or a local Ollama instance)
 - A GitHub personal access token (for issue/PR ingestion and opening PRs)
 
 ### Installation
@@ -144,14 +144,35 @@ pip install -r requirements.txt
 
 ### Configuration
 
-Create a `.env` file in the project root:
+TaskChain is **provider-agnostic**: it talks to any OpenAI-compatible endpoint. Create
+a `.env` file in the project root and pick a provider preset, or point straight at a
+custom endpoint:
 
 ```
-OPENAI_API_KEY=sk-your_openai_api_key_here
+# Preset: openai | nebius | deepseek | ollama
+LLM_PROVIDER=openai
+LLM_API_KEY=sk-your_api_key_here
+
+# Optional overrides (these win over the preset)
+# LLM_MODEL=gpt-4o-mini
+# LLM_BASE_URL=https://api.openai.com/v1
+
 GITHUB_TOKEN=ghp-your_github_token_here
 DATABASE_URL=sqlite:///data/rag_index.sqlite
 ENABLE_RERANKER=True
 ```
+
+Examples for other providers:
+
+| Provider | Configuration |
+|---|---|
+| OpenAI | `LLM_PROVIDER=openai` + `LLM_API_KEY=sk-...` |
+| Nebius | `LLM_PROVIDER=nebius` + `LLM_API_KEY=<nebius key>` |
+| DeepSeek | `LLM_PROVIDER=deepseek` + `LLM_API_KEY=<deepseek key>` |
+| Ollama (local) | `LLM_PROVIDER=ollama` (no key required) |
+| Anything else | `LLM_BASE_URL=<endpoint>` + `LLM_MODEL=<model>` + `LLM_API_KEY=<key>` |
+
+`OPENAI_API_KEY` is still accepted as an alias for `LLM_API_KEY`.
 
 ### Running
 
@@ -177,7 +198,6 @@ Stretch goals beyond v1 — not required for launch, useful for later iterations
 - Missing-test generation for uncovered functions
 - Issue triage: rank open issues by how tractable they look for the agent
 - PR review assistant: review a human-authored PR against repo conventions
-- Multi-provider LLM support (not just OpenAI)
 
 ---
 

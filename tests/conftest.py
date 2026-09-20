@@ -30,8 +30,8 @@ init_db()
 def mock_llm(monkeypatch):
     """Replace the LLM client `api.server` builds, so tests stay offline.
 
-    The Q&A pipeline constructs its own client internally, so patching the class
-    reference is the only seam that keeps `/ask` hermetic.
+    The Q&A pipeline constructs its own client internally via the factory, so
+    patching that seam is what keeps `/ask` hermetic.
     """
     import api.server as server
 
@@ -39,5 +39,5 @@ def mock_llm(monkeypatch):
     client.chat.completions.create.return_value = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="Stubbed answer."))]
     )
-    monkeypatch.setattr(server, "OpenAI", lambda *args, **kwargs: client)
+    monkeypatch.setattr(server, "build_llm_client", lambda *args, **kwargs: client)
     return client

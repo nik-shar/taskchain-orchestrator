@@ -25,7 +25,7 @@ test:
 	PYTHONPATH=. $(PYTEST) -q tests
 
 check:
-	PYTHONPATH=. $(PYTHON) -m py_compile config.py ingestion/*.py agent/*.py api/*.py github/*.py utils/*.py tests/*.py
+	PYTHONPATH=. $(PYTHON) -m py_compile config.py ingestion/*.py agent/*.py api/*.py github/*.py llm/*.py utils/*.py tests/*.py
 	PYTHONPATH=. $(PYTEST) -q tests
 
 clean:

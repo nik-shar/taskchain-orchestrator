@@ -26,7 +26,37 @@ FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", "5"))
 
 # Models
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+
+# LLM provider configuration.
+# TaskChain targets any OpenAI-compatible endpoint: select a preset with
+# LLM_PROVIDER, or point straight at a custom endpoint with LLM_BASE_URL /
+# LLM_MODEL. Explicit overrides always win over the preset's values.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL") or None
+LLM_MODEL = os.getenv("LLM_MODEL") or None
+FALLBACK_LLM_MODEL = "gpt-4o-mini"
+
+# Preset endpoints/models per provider. `api_key` is only used when a provider
+# needs a placeholder (Ollama ignores it, but the OpenAI SDK requires a value).
+LLM_PROVIDER_PRESETS: dict[str, dict[str, str | None]] = {
+    "openai": {"base_url": None, "model": "gpt-4o-mini", "api_key": None},
+    "nebius": {
+        "base_url": "https://api.tokenfactory.nebius.com/v1/",
+        "model": "PrimeIntellect/INTELLECT-3",
+        "api_key": None,
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "api_key": None,
+    },
+    "ollama": {
+        "base_url": "http://localhost:11434/v1",
+        "model": "llama3.1",
+        "api_key": "ollama",
+    },
+}
 
 # Three-tier context strategy budgets
 # Tier 1: docs injected directly into the prompt
