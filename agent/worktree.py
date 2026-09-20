@@ -114,8 +114,27 @@ def delete_file(worktree: Path | str, rel_path: str) -> PatchResult:
     return PatchResult(applied=[rel_path])
 
 
+def _paths_in_diff(diff_text: str) -> list[str]:
+    """File paths named by a unified diff, normalised to repository-relative form."""
+    paths: list[str] = []
+    for line in diff_text.splitlines():
+        if not line.startswith(("--- ", "+++ ")):
+            continue
+        raw = line[4:].strip()
+        if raw == "/dev/null":
+            continue
+        if raw.startswith(("a/", "b/")):
+            raw = raw[2:]
+        if raw and raw not in paths:
+            paths.append(raw)
+    return paths
+
+
 def apply_patch(worktree: Path | str, diff_text: str) -> PatchResult:
-    """Apply a unified diff with `git apply`, after a dry run so a bad patch is a no-op."""
+    """Apply a unified diff with `git apply`, after a dry run so a bad patch is a no-op.
+
+    Reports the files named by *this* diff, not every file changed since the baseline.
+    """
     worktree_path = Path(worktree)
     if not diff_text.strip():
         return PatchResult(errors=["empty diff"])
@@ -140,7 +159,7 @@ def apply_patch(worktree: Path | str, diff_text: str) -> PatchResult:
     if applied.returncode != 0:
         return PatchResult(errors=[f"git apply failed: {applied.stderr.strip()[:400]}"])
 
-    return PatchResult(applied=worktree_files_changed(worktree_path))
+    return PatchResult(applied=_paths_in_diff(diff_text) or worktree_files_changed(worktree_path))
 
 
 def worktree_diff(worktree: Path | str) -> str:

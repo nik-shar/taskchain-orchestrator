@@ -5,7 +5,7 @@ PYTEST := ./venv/bin/pytest
 HOST ?= 127.0.0.1
 PORT ?= 8000
 
-.PHONY: help install api test check bench clean
+.PHONY: help install api mcp test check bench clean
 
 ARGS ?=
 
@@ -13,6 +13,7 @@ help:
 	@echo "Available targets:"
 	@echo "  make install   Install Python dependencies into ./venv"
 	@echo "  make api       Run the FastAPI server with uvicorn"
+	@echo "  make mcp       Run the MCP server over stdio (ARGS='--http' for HTTP)"
 	@echo "  make test      Run the test suite"
 	@echo "  make check     Compile modules and run tests"
 	@echo "  make bench     Retrieval benchmark; pass ARGS=--repo-id owner/repo --skip-ingest"
@@ -24,11 +25,14 @@ install:
 api:
 	PYTHONPATH=. $(PYTHON) -m uvicorn api.server:app --host $(HOST) --port $(PORT)
 
+mcp:
+	PYTHONPATH=. $(PYTHON) -m mcp_server.server $(ARGS)
+
 test:
 	PYTHONPATH=. $(PYTEST) -q tests
 
 check:
-	PYTHONPATH=. $(PYTHON) -m py_compile config.py ingestion/*.py agent/*.py api/*.py github/*.py llm/*.py utils/*.py tests/*.py
+	PYTHONPATH=. $(PYTHON) -m py_compile config.py ingestion/*.py agent/*.py api/*.py github/*.py llm/*.py mcp_server/*.py utils/*.py tests/*.py
 	PYTHONPATH=. $(PYTEST) -q tests
 
 bench:
