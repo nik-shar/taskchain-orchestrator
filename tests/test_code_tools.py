@@ -47,19 +47,6 @@ def test_read_file_blocks_path_escape(workspace):
     assert reader.read_file("missing.py") is None
 
 
-def test_search_finds_matches(workspace):
-    reader = CodeReader(workspace)
-    results = reader.search(r"verify\(")
-    # 3 call sites in server.py + the definition in utils.py
-    assert len(results) >= 4
-    assert {r["path"] for r in results} == {"src/server.py", "src/utils.py"}
-
-
-def test_search_rejects_bad_regex(workspace):
-    reader = CodeReader(workspace)
-    assert reader.search("([unclosed") == []
-
-
 def test_build_code_context_budget(workspace, monkeypatch):
     import config
     monkeypatch.setattr(config, "CODE_FILE_MAX_CHARS", 1000)

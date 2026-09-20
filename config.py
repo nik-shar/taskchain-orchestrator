@@ -19,13 +19,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 # Optional retrieval tuning
-ENABLE_RERANKER = os.getenv("ENABLE_RERANKER", "True").lower() in ("true", "1", "yes")
 SEMANTIC_TOP_K = int(os.getenv("SEMANTIC_TOP_K", "5"))
 KEYWORD_TOP_K = int(os.getenv("KEYWORD_TOP_K", "5"))
 FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", "5"))
-
-# Models
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 # LLM provider configuration.
 # TaskChain targets any OpenAI-compatible endpoint: select a preset with

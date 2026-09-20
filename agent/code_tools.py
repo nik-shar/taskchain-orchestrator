@@ -1,12 +1,10 @@
 """Tier 2: read-only code access tools.
 
-The LLM never writes to the workspace. These tools expose exactly three
-read operations — list, read, search — each bounded by size caps and path
-safety so a single request cannot blow up the context window or escape the
-workspace directory.
+The workspace is never written to. These tools expose exactly two read operations —
+list and read — each bounded by size caps and path safety so a single request cannot
+blow up the context window or escape the workspace directory.
 """
 import logging
-import re
 from pathlib import Path
 
 import config
@@ -64,31 +62,6 @@ class CodeReader:
             "truncated": truncated,
             "total_chars": len(content),
         }
-
-    def search(self, pattern: str, max_results: int = 20) -> list[dict]:
-        """Regex search across workspace text files. Returns bounded matches."""
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error:
-            return []
-
-        results = []
-        for rel_path in self.list_files():
-            target = self._safe_resolve(rel_path)
-            if target is None or not target.is_file():
-                continue
-            try:
-                content = target.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for i, line in enumerate(content.splitlines(), start=1):
-                if regex.search(line):
-                    results.append(
-                        {"path": rel_path, "line": i, "text": line.strip()[:200]}
-                    )
-                    if len(results) >= max_results:
-                        return results
-        return results
 
 
 def build_code_context(

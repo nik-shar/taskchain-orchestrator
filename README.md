@@ -21,7 +21,8 @@ Ask natural-language questions about the codebase, its issues, or its pull reque
 - *"What's issue #42 about, and has anyone attempted a fix?"*
 - *"Summarize the changes in PR #17."*
 
-Powered by the RAG index — read-only, fast, works on any repo with zero setup. This is the first thing a user should be able to try.
+Powered by the RAG index — read-only and fast once a repository has been ingested
+(ingestion is a background step; it requires a `GITHUB_TOKEN`).
 
 ### 2. Issue → Pull Request
 Paste an issue link (or describe a bug/feature in plain English). The **Planner → Executor → Verifier** pipeline:
@@ -175,7 +176,6 @@ LLM_API_KEY=sk-your_api_key_here
 
 GITHUB_TOKEN=ghp-your_github_token_here
 DATABASE_URL=sqlite:///data/rag_index.sqlite
-ENABLE_RERANKER=True
 ```
 
 Examples for other providers:
