@@ -76,3 +76,37 @@ MAX_INDEXED_FILES = int(os.getenv("MAX_INDEXED_FILES", "2000"))
 
 # Ingestion cache TTL in days
 INGESTION_REFRESH_DAYS = int(os.getenv("INGESTION_REFRESH_DAYS", "7"))
+
+# Sandboxed execution. Agent-authored commands (test runners, linters) must never
+# execute on the host, so they run in a throwaway container with no network, a
+# non-root user, resource caps and a wall-clock timeout.
+DOCKER_SANDBOX_IMAGE = os.getenv("DOCKER_SANDBOX_IMAGE", "python:3.11-slim")
+SANDBOX_TIMEOUT_S = int(os.getenv("SANDBOX_TIMEOUT_S", "300"))
+SANDBOX_MEMORY = os.getenv("SANDBOX_MEMORY", "1g")
+SANDBOX_CPUS = os.getenv("SANDBOX_CPUS", "2")
+SANDBOX_PIDS_LIMIT = int(os.getenv("SANDBOX_PIDS_LIMIT", "256"))
+# Run as the invoking host user so files written into the mounted worktree keep sane
+# ownership, while still avoiding container root.
+SANDBOX_USER = os.getenv("SANDBOX_USER") or (
+    f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") else "65534:65534"
+)
+# Dependency installation needs network; test execution should not. Build a per-repo
+# image with `build_repo_image()` rather than enabling this for the test run.
+SANDBOX_ALLOW_NETWORK = os.getenv("SANDBOX_ALLOW_NETWORK", "False").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+# Fail closed by default: refusing to run is better than running untrusted commands
+# on the host. This escape hatch exists for local development only.
+SANDBOX_ALLOW_HOST_FALLBACK = os.getenv("SANDBOX_ALLOW_HOST_FALLBACK", "False").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+# Explicit test/lint command for the verifier. When unset, detect_test_command()
+# infers one from the repo's manifests.
+SANDBOX_TEST_COMMAND = os.getenv("SANDBOX_TEST_COMMAND", "").strip() or None
+# Where patch edits are applied, per run. Kept separate from the read-only workspace
+# so the "the LLM never writes to the workspace" invariant still holds.
+WORKTREES_DIR = DATA_DIR / "worktrees"

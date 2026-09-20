@@ -1,5 +1,8 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "docker: requires a running Docker daemon (deselect with -m 'not docker')",
+]
 
 [tool.ruff]
 line-length = 100
