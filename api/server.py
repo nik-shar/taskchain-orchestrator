@@ -1,4 +1,8 @@
-"""FastAPI application for the TaskChain autonomous repository agent."""
+"""FastAPI application: repository ingestion and repo-aware Q&A.
+
+Editing is deliberately out of scope here. TaskChain provides repository context and a
+sandboxed execution substrate, and exposes both to agents over MCP (see `mcp_server/`).
+"""
 import json
 import logging
 import re
@@ -13,13 +17,6 @@ from pydantic import BaseModel
 
 import config
 from agent.code_tools import CodeReader, build_code_context
-from agent.orchestrator import (
-    ROUTE_FIX,
-    Orchestrator,
-    route,
-    session_payload,
-)
-from github.pr_client import PullRequestClient
 from ingestion.code_indexer import count_indexed_files, search_code
 from ingestion.docs_collector import build_docs_context
 from ingestion.ingestion_pipeline import ingest_repository
@@ -42,9 +39,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TaskChain — Autonomous Repository Agent",
-    description="RAG-powered GitHub repository Q&A and issue-to-PR automation.",
-    version="1.0.0",
+    title="TaskChain — Repository Intelligence",
+    description="RAG-powered repository Q&A, plus a sandboxed execution substrate over MCP.",
+    version="2.0.0",
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=UI_DIR), name="static")
@@ -56,40 +53,6 @@ class IngestRequest(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
-
-
-class FixRequest(BaseModel):
-    issue_description: str
-
-
-class RefineRequest(BaseModel):
-    session_id: str
-    feedback: str
-
-
-class DispatchRequest(BaseModel):
-    message: str
-
-
-class PROpenRequest(BaseModel):
-    title: str
-    body: str
-    head_branch: str
-    base_branch: str = "main"
-
-
-def _require_ingested(owner: str, repo: str) -> None:
-    """Raise 400 unless the repository has finished ingesting."""
-    db = next(get_db())
-    try:
-        ingestion = db.query(RepoIngestion).filter_by(owner=owner, repo=repo).first()
-        if not ingestion or ingestion.status != "complete":
-            raise HTTPException(
-                status_code=400,
-                detail="Repository has not been ingested yet. Call /repos/ingest first.",
-            )
-    finally:
-        db.close()
 
 
 @app.get("/", include_in_schema=False)
@@ -362,80 +325,3 @@ def ask_about_repo_stream(owner: str, repo: str, question: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-@app.post("/repos/{owner}/{repo}/fix")
-def fix_issue(owner: str, repo: str, request: FixRequest):
-    """Plan, apply and verify a fix; retries when verification fails."""
-    repo_id = f"{owner}/{repo}"
-    logger.info(f"Fix request for {repo_id}: {request.issue_description[:80]}...")
-    _require_ingested(owner, repo)
-
-    session = Orchestrator().run_fix(repo_id, request.issue_description)
-    return session_payload(session)
-
-
-@app.post("/repos/{owner}/{repo}/refine")
-def refine_fix(owner: str, repo: str, request: RefineRequest):
-    """Re-run execute/verify for an existing session with the user's feedback."""
-    repo_id = f"{owner}/{repo}"
-    logger.info(f"Refinement for {repo_id}: {request.feedback[:80]}...")
-    _require_ingested(owner, repo)
-
-    try:
-        session = Orchestrator().refine(request.session_id, request.feedback)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Unknown session_id {request.session_id!r}. Sessions are in memory, so "
-                "they do not survive a restart; start a new run with /fix."
-            ),
-        ) from exc
-    return session_payload(session)
-
-
-@app.post("/repos/{owner}/{repo}/dispatch")
-def dispatch(owner: str, repo: str, request: DispatchRequest):
-    """Route a free-form message to the Q&A path or the fixing path."""
-    repo_id = f"{owner}/{repo}"
-    decision = route(request.message)
-    logger.info(f"Dispatch for {repo_id} -> {decision}: {request.message[:80]}...")
-
-    if decision != ROUTE_FIX:
-        final = None
-        for event in _ask_pipeline(owner, repo, request.message):
-            if event["stage"] == "done":
-                final = event["result"]
-            elif event["stage"] == "error":
-                detail = event.get("detail", "Q&A failed")
-                raise HTTPException(status_code=500, detail=detail)
-        return {"route": decision, "answer": final}
-
-    _require_ingested(owner, repo)
-    session = Orchestrator().run_fix(repo_id, request.message)
-    return {"route": decision, "fix": session_payload(session)}
-
-
-@app.post("/repos/{owner}/{repo}/pulls")
-def open_pull_request(owner: str, repo: str, request: PROpenRequest):
-    repo_id = f"{owner}/{repo}"
-    logger.info(f"Opening PR for {repo_id}: {request.title}")
-    try:
-        client = PullRequestClient()
-        pr = client.open_pr(
-            owner=owner,
-            repo=repo,
-            title=request.title,
-            body=request.body,
-            head_branch=request.head_branch,
-            base_branch=request.base_branch,
-        )
-        return {
-            "repo_id": repo_id,
-            "pr_number": pr.get("number"),
-            "html_url": pr.get("html_url"),
-        }
-    except Exception as exc:
-        logger.exception(f"Failed to open PR for {repo_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Failed to open PR: {exc}") from exc

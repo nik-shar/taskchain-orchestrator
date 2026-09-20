@@ -283,56 +283,6 @@ $("#askForm").addEventListener("submit", async (e) => {
   };
 });
 
-$("#fixForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!state.owner || !state.repo) {
-    alert("Please ingest a repository first.");
-    return;
-  }
-  const issue = $("#fixInput").value.trim();
-  const button = $("#fixButton");
-  button.disabled = true;
-  button.textContent = "Planning...";
-
-  try {
-    const res = await fetch(`/repos/${state.owner}/${state.repo}/fix`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ issue_description: issue }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Fix generation failed");
-
-    const box = $("#fixResult");
-    box.classList.remove("hidden");
-    const verification = data.verification || {};
-    const badgeClass = data.status === "passed" ? "passed" : "failed";
-    const files = (data.files_changed || []).join(", ") || "none";
-    box.innerHTML = `
-      <div class="fix-status">
-        <span class="status-badge ${badgeClass}">${escapeHtml(data.status || "unknown")}</span>
-        <span class="fix-meta">${data.attempts} attempt${data.attempts === 1 ? "" : "s"} · files: ${escapeHtml(files)}</span>
-      </div>
-      <h3>Summary</h3>
-      <pre class="code-block">${escapeHtml(data.summary)}</pre>
-      <h3>Plan</h3>
-      <pre class="code-block">${escapeHtml(data.plan)}</pre>
-      <h3>Proposed Diff</h3>
-      <pre class="code-block">${escapeHtml(data.diff)}</pre>
-      <h3>Verification: ${escapeHtml(verification.test_command || "no test command")}</h3>
-      <pre class="code-block">${escapeHtml(verification.test_output || "not run")}</pre>
-      <h3>Review (advisory)</h3>
-      <pre class="code-block">${escapeHtml(verification.review || "")}</pre>
-    `;
-  } catch (err) {
-    const box = $("#fixResult");
-    box.classList.remove("hidden");
-    box.textContent = `Error: ${err.message}`;
-  } finally {
-    button.disabled = false;
-    button.textContent = "Plan & Verify Fix";
-  }
-});
 
 function escapeHtml(text) {
   const div = document.createElement("div");

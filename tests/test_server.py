@@ -1,8 +1,13 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from api.server import app
 
 client = TestClient(app)
+
+# Editing is out of scope for TaskChain: agents perform edits through the MCP server,
+# so these REST routes must not exist. Guarding them keeps the scope from creeping back.
+REMOVED_EDITING_ROUTES = ["fix", "refine", "dispatch", "pulls"]
 
 
 def test_health():
@@ -34,9 +39,7 @@ def test_ask_without_ingestion(mock_llm):
     mock_llm.chat.completions.create.assert_called_once()
 
 
-def test_fix_without_ingestion():
-    response = client.post(
-        "/repos/owner/repo/fix",
-        json={"issue_description": "Bug"},
-    )
-    assert response.status_code == 400
+@pytest.mark.parametrize("route", REMOVED_EDITING_ROUTES)
+def test_editing_routes_are_not_exposed(route):
+    response = client.post(f"/repos/owner/repo/{route}", json={})
+    assert response.status_code == 404

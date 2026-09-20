@@ -9,11 +9,12 @@
   <body>
     <div class="container">
       <header class="hero">
-        <p class="eyebrow">Autonomous Repository Agent</p>
+        <p class="eyebrow">Repository Intelligence</p>
         <h1>TaskChain</h1>
         <p class="hero-copy">
-          Paste a public GitHub repository, ask questions about it, and turn issues
-          into proposed fixes — all from one simple dashboard.
+          Paste a public GitHub repository and ask anything about its code, issues and
+          pull requests. Editing is delegated to your own agent through the MCP server,
+          which gets an isolated sandbox to work in.
         </p>
       </header>
 
@@ -69,25 +70,19 @@
           <div id="answerBox" class="answer-box hidden"></div>
         </section>
 
-        <section class="panel" id="fixPanel">
+        <section class="panel" id="mcpPanel">
           <div class="panel-head">
             <div>
-              <p class="section-kicker">Issue → Pull Request</p>
-              <h2>Generate a Fix</h2>
+              <p class="section-kicker">Editing</p>
+              <h2>Delegated to Your Agent</h2>
             </div>
           </div>
-          <form id="fixForm" class="query-form stacked">
-            <textarea
-              id="fixInput"
-              rows="4"
-              placeholder="Describe the bug or feature request in plain English, or paste a GitHub issue URL."
-              required
-            ></textarea>
-            <button id="fixButton" class="submit-button" type="submit">
-              Plan & Verify Fix
-            </button>
-          </form>
-          <div id="fixResult" class="result-box hidden"></div>
+          <p class="panel-note">
+            TaskChain does not generate or apply code changes. It provides the repository
+            context and an isolated, sandboxed worktree, and exposes both to any
+            MCP-capable agent. Run <code>make mcp</code> and connect your agent to edit,
+            test and diff a repository.
+          </p>
         </section>
       </main>
     </div>

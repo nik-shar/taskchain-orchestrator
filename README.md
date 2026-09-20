@@ -86,8 +86,8 @@ graph TD
 │   ├── planner.py           # Issue/feature analysis and plan generation
 │   ├── executor.py          # Produces and applies edits; incorporates refinement feedback
 │   ├── verifier.py          # Runs the repo's tests in the sandbox + advisory diff review
-│   ├── patch_tools.py       # Worktree creation, edit application, unified diff extraction
-│   └── code_tools.py        # Read-only list/read/search over the workspace
+│   ├── worktree.py          # Isolated per-run git worktree + patch primitives
+│   └── code_tools.py        # Read-only list/read over the workspace
 ├── api/
 │   └── server.py            # FastAPI endpoints (ingest/ask/fix/refine/dispatch/pulls)
 ├── utils/
