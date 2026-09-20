@@ -2,7 +2,10 @@
 openai>=1.0.0
 
 # MCP server (agent integration surface)
-mcp>=1.27.0
+# Pinned below 2.0: the code targets the mcp 1.x FastMCP API. In mcp 2.x FastMCP was
+# renamed to MCPServer (mcp.server.mcpserver) and other APIs changed, so an open-ended
+# bound breaks a clean install.
+mcp>=1.27.0,<2
 
 # API server
 fastapi>=0.111.0
