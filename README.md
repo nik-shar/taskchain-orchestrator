@@ -1,6 +1,6 @@
 # TaskChain — Repository Intelligence & Sandboxed Execution
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/interface-MCP-blueviolet.svg)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -126,31 +126,34 @@ and how do I run it safely?"*, and the agent answers *"what should change?"*.
 
 ---
 
-## 🛠️ Feature Status
+## 🛠️ Project Status
 
-| Feature | Status |
+| Capability | Status |
 |---|---|
 | MCP server exposing context + execution tools | ✅ Built |
 | Isolated per-run git worktrees (workspace never written to) | ✅ Built |
 | Hardened Docker sandbox (`--network none`, caps, timeout, fail-closed) | ✅ Built |
 | SQLite FTS5 indexing of source files + issues/PRs | ✅ Built |
-| GitHub ingestion: metadata, docs, file tree, issues, PRs | ✅ Built (requires `GITHUB_TOKEN`) |
+| GitHub ingestion: metadata, docs, file tree, issues, PRs | ✅ Built (needs `GITHUB_TOKEN`) |
 | Repo-aware Q&A with streamed pipeline stages | ✅ Built |
 | Provider-agnostic LLM configuration | ✅ Built |
 | Retrieval benchmark (index size, P50/P95, HitRate@k) | ✅ Built |
 | Minimal web dashboard | ✅ Built |
-| Semantic (vector) retrieval alongside keyword search | ⬜ Optional (would restore ChromaDB + RRF fusion) |
-| Repo size limits / per-run cost caps | ⬜ Partial (sandbox timeout + char/file caps; no cost cap) |
-| Hosted deployment (GCP Cloud Run) | ⬜ To build |
+| Semantic (vector) retrieval alongside keyword search | ⬜ Not built — see [Roadmap](#roadmap) |
+| Per-run cost caps | ⬜ Partial — time/resource caps only |
+| Hosted deployment | ⬜ Out of scope for this repo |
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.10 or higher
-- An API key for any OpenAI-compatible LLM provider (OpenAI, Nebius, DeepSeek, or a local Ollama instance)
-- A GitHub personal access token (for issue/PR ingestion and opening PRs)
+
+- **Python 3.11 or higher** (`datetime.UTC` and the `X | None` syntax are required)
+- An API key for an OpenAI-compatible LLM provider — OpenAI, Nebius, DeepSeek, or a local
+  Ollama instance
+- A GitHub personal access token — required for ingestion and for `open_pull_request`
+- **Docker** — required by `sandbox_run`; the sandbox fails closed without a daemon
 
 ### Installation
 
@@ -158,22 +161,22 @@ and how do I run it safely?"*, and the agent answers *"what should change?"*.
 git clone https://github.com/nik-shar/taskchain-orchestrator.git
 cd taskchain-orchestrator
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 ### Configuration
 
-TaskChain is **provider-agnostic**: it talks to any OpenAI-compatible endpoint. Create
-a `.env` file in the project root and pick a provider preset, or point straight at a
-custom endpoint:
+TaskChain is **provider-agnostic**: it talks to any OpenAI-compatible endpoint. Create a
+`.env` file in the project root (see `.env.example`) and pick a preset, or point straight at
+a custom endpoint:
 
-```
+```dotenv
 # Preset: openai | nebius | deepseek | ollama
 LLM_PROVIDER=openai
 LLM_API_KEY=sk-your_api_key_here
 
-# Optional overrides (these win over the preset)
+# Optional overrides — these win over the preset
 # LLM_MODEL=gpt-4o-mini
 # LLM_BASE_URL=https://api.openai.com/v1
 
@@ -181,17 +184,18 @@ GITHUB_TOKEN=ghp-your_github_token_here
 DATABASE_URL=sqlite:///data/rag_index.sqlite
 ```
 
-Examples for other providers:
-
 | Provider | Configuration |
 |---|---|
 | OpenAI | `LLM_PROVIDER=openai` + `LLM_API_KEY=sk-...` |
 | Nebius | `LLM_PROVIDER=nebius` + `LLM_API_KEY=<nebius key>` |
 | DeepSeek | `LLM_PROVIDER=deepseek` + `LLM_API_KEY=<deepseek key>` |
-| Ollama (local) | `LLM_PROVIDER=ollama` (no key required) |
+| Ollama (local) | `LLM_PROVIDER=ollama` — no key required |
 | Anything else | `LLM_BASE_URL=<endpoint>` + `LLM_MODEL=<model>` + `LLM_API_KEY=<key>` |
 
-`OPENAI_API_KEY` is still accepted as an alias for `LLM_API_KEY`.
+`OPENAI_API_KEY` is accepted as an alias for `LLM_API_KEY`.
+
+`DATABASE_URL` must stay SQLite: the keyword index uses FTS5, which Postgres does not
+provide. See [docs/decisions.md](docs/decisions.md#7-fts5-requires-sqlite-which-constrains-deployment).
 
 ### Running the Q&A dashboard
 
@@ -260,38 +264,76 @@ when no daemon is available.
 
 ### Retrieval benchmark
 
-`make bench` reports what is actually in the index plus how fast search returns:
+`make bench` reports what is actually in the index plus how fast retrieval returns, so
+performance claims can be reproduced rather than taken on trust:
 
 ```bash
-# Ingest a repo, then measure
+# Ingest a repository first, then measure
 make bench ARGS="--repo-url https://github.com/tiangolo/fastapi"
 
 # Or reuse an existing index
 make bench ARGS="--repo-id tiangolo/fastapi --skip-ingest"
 
 # Add labelled HitRate@k / MRR@k from a JSONL of {"query", "expected_path"}
-make bench ARGS="--repo-id tiangolo/fastapi --skip-ingest --eval-file data/retrieval_eval.jsonl --out docs/retrieval_report.md"
+make bench ARGS="--repo-id tiangolo/fastapi --skip-ingest \
+  --eval-file data/retrieval_eval.jsonl --out docs/retrieval_report.md"
 ```
 
-Measured on this repository (`nik-shar/taskchain-orchestrator`, 37 indexed files, 5 queries):
+**Reference run.** Measured on this repository at commit `de9894d`
+(`nik-shar/taskchain-orchestrator`, 37 indexed files, 5 queries, local SQLite):
 
 | Source | Count |
 | --- | ---: |
 | Repository files indexed (FTS5 `files_fts`) | 37 |
-| Files in read-only workspace | 37 |
+| Files in the read-only workspace | 37 |
 | Documentation files injected | 2 |
-| Issues / PRs indexed | 0 (ingestion requires `GITHUB_TOKEN`) |
+| Issues / PRs indexed | 0 — ingestion needed a `GITHUB_TOKEN` |
 
 | Retriever | P50 (ms) | P95 (ms) | Hits |
 | --- | ---: | ---: | ---: |
 | Code (FTS5 `files_fts`) | 0.72 | 1.04 | 16 |
 | History (FTS5 `issues_fts`) | 0.17 | 0.21 | 0 |
 
-> Ingesting a repository requires `GITHUB_TOKEN`. Without it the unauthenticated
-> hourly quota (60 requests) trips `check_rate_limit`, which fails fast rather than
-> stalling the pipeline for an hour.
+These numbers are a sample, not a benchmark suite: they come from a single small
+repository and 5 queries. The point is that `make bench` regenerates them on demand.
+
+> **Ingestion needs `GITHUB_TOKEN`.** Without it the unauthenticated hourly quota
+> (60 requests) trips `check_rate_limit`, which fails fast with an actionable error
+> instead of stalling the pipeline for an hour.
 
 ---
+
+## ⚠️ Limitations
+
+Stated plainly, because they shape how the project should be used:
+
+- **Keyword retrieval only.** FTS5 matches tokens, so a question phrased with different
+  vocabulary than the code will miss. Semantic retrieval is the first roadmap item.
+- **Ingestion is synchronous and in-process.** A large repository blocks the worker
+  running it; there is no queue, retry, or resumable ingestion.
+- **The sandbox cannot install dependencies.** `run_sandbox_command` executes with
+  `--network none`, so a repository whose dependencies are not in the image cannot run its
+  own tests. `utils/sandbox.build_repo_image()` is the intended workaround: bake a
+  per-repository image at build time, where network is available.
+- **Index size is capped** at 500 listed files, 2,000 indexed files, 100 KB per file and
+  20,000 characters per indexed file. Very large repositories are partially covered.
+- **State is local and single-instance.** The SQLite index and `data/worktrees/` live on
+  one filesystem; nothing is shared between processes.
+- **GitHub only.** Ingestion is written against the GitHub REST API.
+
+---
+
+## 📚 Documentation
+
+| Document | Contents |
+|---|---|
+| [README](README.md) | Overview, quickstart, configuration, benchmark, limitations |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | Reference for all 18 MCP tools |
+| [docs/decisions.md](docs/decisions.md) | Why the project is shaped this way, including the decision to exclude code editing |
+
+---
+
+<a id="roadmap"></a>
 
 ## 🗺️ Roadmap
 
@@ -309,8 +351,19 @@ Stretch goals — not required, useful later:
 
 ## 🤝 Contributing
 
-Contributions, issues, and feature requests are welcome — check the issues page.
+Contributions, issues and feature requests are welcome — please open an issue first for
+anything larger than a bug fix.
+
+```bash
+make install     # dependencies into ./venv
+make check       # compile + lint + test
+make test        # tests only
+```
+
+The test suite is hermetic: no network calls, a temporary SQLite database, and a stubbed
+LLM. Keep it that way — `tests/conftest.py` forces a dummy `OPENAI_API_KEY` for exactly
+that reason. Tests that need a real Docker daemon are marked `docker` and deselected in CI.
 
 ## 📝 License
 
-MIT License.
+MIT — see [LICENSE](LICENSE).

@@ -1,6 +1,20 @@
 # Design Decisions
 
-Short records of the non-obvious calls in this repo, and what they cost.
+Short records of the non-obvious calls in this repo, and what each one cost. Read this
+before changing the architecture: several of these decisions are load-bearing.
+
+| # | Decision |
+|---|---|
+| [1](#1-taskchain-does-not-edit-code) | TaskChain does not edit code |
+| [2](#2-mechanism-stays-agency-goes) | Mechanism stays, agency goes |
+| [3](#3-edits-go-to-a-worktree-never-the-workspace) | Edits go to a worktree, never the workspace |
+| [4](#4-mcp-tools-take-a-worktree_id-never-a-path) | MCP tools take a `worktree_id`, never a path |
+| [5](#5-the-sandbox-fails-closed) | The sandbox fails closed |
+| [6](#6-sqlite-fts5-for-retrieval-not-a-vector-database) | SQLite FTS5 for retrieval, not a vector database |
+| [7](#7-fts5-requires-sqlite-which-constrains-deployment) | FTS5 requires SQLite, which constrains deployment |
+
+Each entry follows the same shape: the decision, why it was made, and its cost.
+
 
 ---
 
