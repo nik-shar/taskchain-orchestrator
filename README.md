@@ -87,14 +87,21 @@ graph TD
 ├── api/
 │   └── server.py            # FastAPI application and endpoints
 ├── ingestion/
-│   ├── sqlite_indexer.py    # Indexes source code and markdown docs
-│   └── github_indexer.py    # Indexes issues and PR metadata/discussion (NEW)
+│   ├── github_indexer.py    # Fetches metadata, issues and PRs from the GitHub API
+│   ├── sqlite_indexer.py    # SQLite FTS5 index + safe query builder for issues/PRs
+│   ├── code_indexer.py      # SQLite FTS5 index of repository source files
+│   ├── docs_collector.py    # Doc collection + budgeted prompt injection
+│   └── workspace.py         # Downloads the repo snapshot for read-only code access
+├── llm/
+│   └── client.py            # Provider-agnostic LLM client factory
 ├── github/
-│   └── pr_client.py         # Opens/updates pull requests via GitHub API (NEW)
+│   └── pr_client.py         # Opens/updates pull requests via GitHub API
+├── scripts/
+│   └── benchmark_retrieval.py  # Index stats, search latency, hit-rate
 ├── ui/
 │   ├── index.html           # Dashboard: Q&A, issue submission, live pipeline logs
 │   └── styles.css
-├── data/                    # Local storage for cloned repos and SQLite DB
+├── data/                    # Local storage for repo snapshots and SQLite DB
 ├── tests/
 ├── config.py
 ├── requirements.txt
@@ -187,6 +194,39 @@ Open `http://localhost:8000` to use the dashboard.
 ```bash
 PYTHONPATH=. venv/bin/pytest -v
 ```
+
+### Retrieval benchmark
+
+`make bench` reports what is actually in the index plus how fast search returns:
+
+```bash
+# Ingest a repo, then measure
+make bench ARGS="--repo-url https://github.com/tiangolo/fastapi"
+
+# Or reuse an existing index
+make bench ARGS="--repo-id tiangolo/fastapi --skip-ingest"
+
+# Add labelled HitRate@k / MRR@k from a JSONL of {"query", "expected_path"}
+make bench ARGS="--repo-id tiangolo/fastapi --skip-ingest --eval-file data/retrieval_eval.jsonl --out docs/retrieval_report.md"
+```
+
+Measured on this repository (`nik-shar/taskchain-orchestrator`, 37 indexed files, 5 queries):
+
+| Source | Count |
+| --- | ---: |
+| Repository files indexed (FTS5 `files_fts`) | 37 |
+| Files in read-only workspace | 37 |
+| Documentation files injected | 2 |
+| Issues / PRs indexed | 0 (ingestion requires `GITHUB_TOKEN`) |
+
+| Retriever | P50 (ms) | P95 (ms) | Hits |
+| --- | ---: | ---: | ---: |
+| Code (FTS5 `files_fts`) | 0.72 | 1.04 | 16 |
+| History (FTS5 `issues_fts`) | 0.17 | 0.21 | 0 |
+
+> Ingesting a repository requires `GITHUB_TOKEN`. Without it the unauthenticated
+> hourly quota (60 requests) trips `check_rate_limit`, which fails fast rather than
+> stalling the pipeline for an hour.
 
 ---
 

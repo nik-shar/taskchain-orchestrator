@@ -70,5 +70,9 @@ CODE_CONTEXT_CHARS = int(os.getenv("CODE_CONTEXT_CHARS", "30000"))
 DOC_FILE_MAX_CHARS = int(os.getenv("DOC_FILE_MAX_CHARS", "20000"))
 MAX_DOCS_STORED = int(os.getenv("MAX_DOCS_STORED", "50"))
 
+# Source-file search index limits (SQLite FTS5 `files_fts`)
+CODE_INDEX_FILE_MAX_CHARS = int(os.getenv("CODE_INDEX_FILE_MAX_CHARS", "20000"))
+MAX_INDEXED_FILES = int(os.getenv("MAX_INDEXED_FILES", "2000"))
+
 # Ingestion cache TTL in days
 INGESTION_REFRESH_DAYS = int(os.getenv("INGESTION_REFRESH_DAYS", "7"))

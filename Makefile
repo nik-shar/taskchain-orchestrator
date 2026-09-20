@@ -5,7 +5,9 @@ PYTEST := ./venv/bin/pytest
 HOST ?= 127.0.0.1
 PORT ?= 8000
 
-.PHONY: help install api test check clean
+.PHONY: help install api test check bench clean
+
+ARGS ?=
 
 help:
 	@echo "Available targets:"
@@ -13,6 +15,7 @@ help:
 	@echo "  make api       Run the FastAPI server with uvicorn"
 	@echo "  make test      Run the test suite"
 	@echo "  make check     Compile modules and run tests"
+	@echo "  make bench     Retrieval benchmark; pass ARGS=--repo-id owner/repo --skip-ingest"
 	@echo "  make clean     Remove local Python cache artifacts"
 
 install:
@@ -27,6 +30,9 @@ test:
 check:
 	PYTHONPATH=. $(PYTHON) -m py_compile config.py ingestion/*.py agent/*.py api/*.py github/*.py llm/*.py utils/*.py tests/*.py
 	PYTHONPATH=. $(PYTEST) -q tests
+
+bench:
+	PYTHONPATH=. $(PYTHON) scripts/benchmark_retrieval.py $(ARGS)
 
 clean:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} +

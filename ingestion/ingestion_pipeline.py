@@ -3,6 +3,7 @@ import logging
 import time
 from datetime import UTC, datetime
 
+from ingestion.code_indexer import index_source_files
 from ingestion.docs_collector import collect_docs
 from ingestion.github_indexer import GitHubIndexer, parse_github_url
 from ingestion.sqlite_indexer import index_issues_and_prs
@@ -110,6 +111,9 @@ def ingest_repository(repo_url: str) -> dict:
         ws_start = time.time()
         workspace = download_workspace(repo_url)
         collect_docs(repo_id, workspace)
+
+        progress_callback(95, "Indexing repository source files for search...")
+        files_indexed = index_source_files(repo_id, workspace)
         ws_latency = time.time() - ws_start
 
         total_latency = time.time() - start_time
@@ -117,7 +121,7 @@ def ingest_repository(repo_url: str) -> dict:
             "fetch_repo": fetch_latency,
             "generate_dna_summary": dna_latency,
             "index_fts": fts_latency,
-            "download_workspace_and_docs": ws_latency,
+            "download_workspace_index_code_and_docs": ws_latency,
             "total_ingestion": total_latency,
         }
 
@@ -151,6 +155,7 @@ def ingest_repository(repo_url: str) -> dict:
             "repo_id": repo_id,
             "issue_count": len(snapshot.issues),
             "pr_count": len(snapshot.pull_requests),
+            "files_indexed": files_indexed,
         }
 
     except Exception as exc:

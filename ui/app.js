@@ -193,9 +193,12 @@ function formatStageDetail(stage, event) {
     return event.chars > 0 ? `${event.chars.toLocaleString()} chars` : "none found";
   }
   if (stage === "file_selection" && event.status === "done") {
-    return event.selected.length
+    const selected = event.selected.length
       ? event.selected.join(", ")
       : "no files selected";
+    return event.search_hits
+      ? `${selected} · ${event.search_hits} index hit${event.search_hits === 1 ? "" : "s"}`
+      : selected;
   }
   if (stage === "code_read" && event.status === "done") {
     return `${event.files.length} file${event.files.length === 1 ? "" : "s"} read`;

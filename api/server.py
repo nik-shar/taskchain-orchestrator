@@ -17,6 +17,7 @@ from agent.executor import Executor
 from agent.planner import Planner
 from agent.verifier import Verifier
 from github.pr_client import PullRequestClient
+from ingestion.code_indexer import count_indexed_files, search_code
 from ingestion.docs_collector import build_docs_context
 from ingestion.ingestion_pipeline import ingest_repository
 from ingestion.sqlite_indexer import keyword_search
@@ -131,6 +132,7 @@ def get_ingestion_status(owner: str, repo: str):
             "status_message": ingestion.status_message,
             "issue_count": ingestion.issue_count,
             "pr_count": ingestion.pr_count,
+            "files_indexed": count_indexed_files(f"{owner}/{repo}"),
         }
     finally:
         db.close()
@@ -145,13 +147,25 @@ def _ask_event(stage: str, status: str, **extra) -> dict:
     return event
 
 
-def _select_code_files(repo_id: str, question: str, file_tree: list[str]) -> list[str]:
-    """Tier 2 step 1: ask the LLM which files to read (read-only selection)."""
+def _select_code_files(
+    question: str, file_tree: list[str], preferred: list[str] | None = None
+) -> list[str]:
+    """Tier 2 step 1: ask the LLM which files to read (read-only selection).
+
+    `preferred` carries paths that keyword search already flagged as relevant, so
+    selection is grounded in the index rather than a guess from bare filenames.
+    """
     if not file_tree:
         return []
     settings = resolve_llm_settings()
     client = build_llm_client(settings)
     tree_text = "\n".join(file_tree)
+    hint = ""
+    if preferred:
+        hint = (
+            "Keyword search over the indexed repository flagged these files as "
+            f"likely relevant: {', '.join(preferred)}\n\n"
+        )
     response = client.chat.completions.create(
         model=settings.model,
         messages=[
@@ -167,7 +181,7 @@ def _select_code_files(repo_id: str, question: str, file_tree: list[str]) -> lis
             },
             {
                 "role": "user",
-                "content": f"File tree:\n{tree_text}\n\nQuestion: {question}",
+                "content": f"{hint}File tree:\n{tree_text}\n\nQuestion: {question}",
             },
         ],
         temperature=0.0,
@@ -221,8 +235,19 @@ def _ask_pipeline(owner: str, repo: str, question: str):
             reader = CodeReader(workspace)
             file_tree = reader.list_files()
             yield _ask_event("file_selection", "started", candidates=len(file_tree))
-            selected = _select_code_files(repo_id, question, file_tree)
-            yield _ask_event("file_selection", "done", selected=selected)
+
+            # Hybrid selection: keyword-search the FTS5 file index first, then let
+            # the LLM choose from the tree with those hits called out.
+            tree_set = set(file_tree)
+            preferred = [
+                hit["path"]
+                for hit in search_code(repo_id, question, top_k=config.SEMANTIC_TOP_K)
+                if hit["path"] in tree_set
+            ]
+            selected = _select_code_files(question, file_tree, preferred=preferred)
+            yield _ask_event(
+                "file_selection", "done", selected=selected, search_hits=len(preferred)
+            )
 
             yield _ask_event("code_read", "started")
             code_context, files_read = build_code_context(workspace, selected)

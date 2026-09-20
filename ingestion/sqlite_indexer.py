@@ -1,6 +1,7 @@
-"""SQLite FTS5 indexing for repository issues and pull requests."""
+"""SQLite FTS5 indexing and search for repository issues, pull requests and files."""
 import logging
 import os
+import re
 import sqlite3
 from typing import Any
 
@@ -8,6 +9,42 @@ import config
 from ingestion.github_indexer import RepoSnapshot
 
 logger = logging.getLogger(__name__)
+
+# Tokens too common to discriminate; without them an OR query matches everything.
+# Two-letter function words are listed explicitly so that short but meaningful
+# technical tokens (db, ci, io, os, ui, js, py, go, id) survive tokenization.
+FTS_STOPWORDS = {
+    "about", "am", "an", "and", "any", "are", "as", "at", "be", "by", "can",
+    "do", "does", "for", "from", "get", "has", "have", "how", "if", "in",
+    "into", "is", "it", "its", "me", "my", "no", "not", "of", "on", "or",
+    "so", "that", "the", "their", "then", "there", "these", "they", "this",
+    "to", "up", "us", "was", "we", "what", "when", "where", "which", "who",
+    "why", "will", "with", "would", "you", "your",
+}
+
+MAX_FTS_TERMS = 12
+
+
+def to_fts_query(text: str, max_terms: int = MAX_FTS_TERMS) -> str:
+    """Convert free-form text into a safe FTS5 OR query.
+
+    A raw question cannot be passed to ``MATCH``: characters like ``?``, ``-`` and
+    ``:`` are FTS5 syntax, so the query raises and search silently returns nothing.
+    Tokenize to word characters (2+, so abbreviations survive), drop stopwords, and
+    quote every surviving term so each one is matched literally.
+    """
+    tokens = re.findall(r"[A-Za-z0-9_]{2,}", text.lower())
+    terms = [token for token in tokens if token not in FTS_STOPWORDS]
+    if not terms:
+        # Query was all stopwords ("what does this do"); fall back to raw tokens.
+        terms = tokens
+
+    ordered: list[str] = []
+    for term in terms:
+        if term not in ordered:
+            ordered.append(term)
+    return " OR ".join(f'"{term}"' for term in ordered[:max_terms])
+
 
 
 def _sqlite_db_path() -> str:
@@ -102,6 +139,10 @@ def index_issues_and_prs(repo_id: str, snapshot: RepoSnapshot) -> None:
 
 def keyword_search(repo_id: str, query: str, top_k: int = 5) -> list[dict[str, Any]]:
     """Search the FTS5 index for issues and PRs matching the query."""
+    fts_query = to_fts_query(query)
+    if not fts_query:
+        return []
+
     try:
         db_path = _sqlite_db_path()
     except RuntimeError:
@@ -120,9 +161,15 @@ def keyword_search(repo_id: str, query: str, top_k: int = 5) -> list[dict[str, A
             ORDER BY rank
             LIMIT ?
             """,
-            (repo_id, query, top_k),
+            (repo_id, fts_query, top_k),
         ).fetchall()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as exc:
+        # A missing table just means the repo has not been ingested yet; anything
+        # else is a real problem worth surfacing.
+        if "no such table" in str(exc):
+            logger.debug("issues_fts not built yet for %s", repo_id)
+        else:
+            logger.warning("FTS issue search failed for %s (%r): %s", repo_id, query, exc)
         rows = []
     finally:
         con.close()
