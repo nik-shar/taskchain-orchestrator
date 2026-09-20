@@ -1,56 +1,65 @@
-# TaskChain — Autonomous Repository Agent
+# TaskChain — Repository Intelligence & Sandboxed Execution
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![LLM-OpenAI-green.svg)](https://openai.com/)
+[![MCP](https://img.shields.io/badge/interface-MCP-blueviolet.svg)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**TaskChain** is an autonomous developer agent that understands a GitHub repository end-to-end — its code, issues, and pull requests — and can answer questions about it, fix issues, and refine its own patches based on feedback.
+**TaskChain** understands a GitHub repository end-to-end — its code, docs, issues and pull
+requests — and gives an *external* agent the two things it needs to work on that repository:
+**grounded context** and a **safe place to run things**.
 
-Paste a public repo. Ask it anything. Point it at an issue and let it ship a fix.
+It deliberately does **not** generate or apply code edits. Deciding what to change belongs
+to your agent; TaskChain owns retrieval and isolation.
+
+Paste a public repo. Ask it anything. Then point your own MCP-capable agent at it.
 
 ---
 
 ## 🎯 Core Use Cases
-
-These are the features that define v1 — everything else is a stretch goal (see [Roadmap](#-roadmap)).
 
 ### 1. Repo-Aware Q&A
 Ask natural-language questions about the codebase, its issues, or its pull requests:
 - *"What does this repo do?"*
 - *"Where is authentication handled?"*
 - *"What's issue #42 about, and has anyone attempted a fix?"*
-- *"Summarize the changes in PR #17."*
 
-Powered by the RAG index — read-only and fast once a repository has been ingested
-(ingestion is a background step; it requires a `GITHUB_TOKEN`).
+Answers are streamed over SSE with live pipeline stages, grounded in a four-tier context:
+repository summary, budgeted documentation, indexed source files, and indexed issue/PR text.
+Ingestion is a background step and requires a `GITHUB_TOKEN`.
 
-### 2. Issue → Pull Request
-Paste an issue link (or describe a bug/feature in plain English). The **Planner → Executor → Verifier** pipeline:
-1. Plans a fix using indexed repo context
-2. Applies the code changes
-3. Verifies the patch against the issue **and runs the repo's actual test suite / linter** — not just an LLM's opinion of its own work
-4. Opens a real GitHub pull request with the fix and a summary of what changed
+### 2. Grounded Context for Any Agent (MCP)
+TaskChain runs as an **MCP server**, so any MCP-capable agent can call it for:
+- `search_code` / `search_issues` / `repository_docs` / `repo_summary` — retrieval
+- `list_files` / `read_file` — bounded, path-checked reads
+- `suggest_plan` — an advisory approach for an issue (a plan, never an edit)
 
-### 3. Conversational Patch Refinement
-After a patch is generated, the user can steer it without starting over:
-- *"Don't touch the config file, only the handler."*
-- *"Also cover the case where the input is empty."*
+### 3. A Safe Place to Work (MCP)
+The same server exposes an execution substrate the agent can work in:
+- `create_worktree` — an isolated, git-initialised copy of the repository
+- `write_file` / `delete_file` / `apply_patch` — raw primitives, path-checked
+- `sandbox_run` — hardened Docker execution: **no network**, non-root, memory/CPU/PID caps
+  and a wall-clock timeout, **failing closed** when Docker is unavailable
+- `diff` — a real unified diff of what the agent changed
+- `discard_worktree` — throw it all away
 
-The agent re-runs Executor → Verifier against the feedback instead of regenerating from scratch. This demonstrates agent steerability, not just one-shot generation.
+The indexed workspace is never written to. Per-run worktrees live under `data/worktrees/`.
 
-### 4. Plain-English Result Summaries
-Every run ends with a human-readable summary — files changed, tests passed/failed, what was fixed — so results are legible to someone who doesn't want to read a raw diff.
+### 4. Open a Pull Request
+Once the agent is happy with its diff, `open_pull_request` creates the PR through the
+GitHub API — so the agent does not need its own GitHub write path.
 
 ---
 
-## 🧱 What This Version Removes
+## 🧱 What This Project Deliberately Excludes
 
-Earlier iterations of this repo explored a sandboxed manual coding environment (in-browser editor + arbitrary code execution). This has been **fully removed** from scope:
-- Out of scope for the problem this project demonstrates (agent orchestration, not IDE infrastructure)
-- Introduces security/cost exposure (arbitrary code execution from public users) disproportionate to the value it adds
-- All related code, dependencies, and UI elements should be deleted, not just hidden
+**Code editing.** TaskChain does not plan-and-apply patches. An earlier iteration of this
+repo implemented a full **Planner → Executor → Verifier** agent that generated patches,
+gated them on the repository's test suite, and refined them from feedback. It was removed on
+purpose: it made this another coding agent rather than the context-and-execution layer it is
+meant to be. That implementation is preserved at the git tag `archive/editing-agent`.
 
-If sandboxed execution is ever revisited, it should be scoped as its own project.
+Also removed in earlier iterations: the in-browser coding workspace with an editor and
+arbitrary public code execution — out of scope, and disproportionate security/cost exposure.
 
 ---
 
@@ -58,38 +67,37 @@ If sandboxed execution is ever revisited, it should be scoped as its own project
 
 ```
 graph TD
-    User([User]) -->|1. Ask question / submit issue| Router{Query type}
+    Agent([Your MCP agent]) -->|1. context queries| MCP[MCP Server]
+    User([User]) -->|ask| API[FastAPI<br>Q&A + SSE]
 
-    Router -->|Q&A| RAG[(RAG Index<br>code + issues + PRs)]
-    RAG -->|Answer| User
+    MCP --> Search[(SQLite FTS5 index<br>source files + issues + PRs)]
+    API --> Search
+    Search --> MCP
+    Search --> API
 
-    Router -->|Fix request| Planner[Planner Agent]
-    Planner -->|Query context| RAG
-    Planner -->|Execution plan| Executor[Executor Agent]
-    Executor -->|Reads/writes code| Repo[(Local Git Clone)]
-    Executor -->|Diff| Verifier[Verifier Agent]
-    Verifier -->|Runs tests/lint| Repo
-    Verifier -->|Fails: feedback| Executor
-    Verifier -->|Passes| PR[Opens GitHub PR]
-    PR --> User
-
-    User -->|Refinement feedback| Executor
+    MCP -->|2. create_worktree| WT[(Isolated worktree<br>data/worktrees/)]
+    MCP -->|3. write_file / apply_patch| WT
+    MCP -->|4. sandbox_run| Sandbox[Docker sandbox<br>no network · caps · timeout]
+    Sandbox --> WT
+    MCP -->|5. diff| Agent
+    MCP -->|6. open_pull_request| GH[GitHub API]
 ```
+
+The division of responsibility is the point: TaskChain answers *"what is in this repository
+and how do I run it safely?"*, and the agent answers *"what should change?"*.
 
 ---
 
 ## 📂 Project Structure
 
-```
+├── mcp_server/
+│   └── server.py            # MCP integration surface: context tools + execution substrate
 ├── agent/
-│   ├── orchestrator.py      # Routes requests; drives plan/execute/verify with retries
-│   ├── planner.py           # Issue/feature analysis and plan generation
-│   ├── executor.py          # Produces and applies edits; incorporates refinement feedback
-│   ├── verifier.py          # Runs the repo's tests in the sandbox + advisory diff review
-│   ├── worktree.py          # Isolated per-run git worktree + patch primitives
+│   ├── planner.py           # Advisory plan for an issue (exposed as suggest_plan)
+│   ├── worktree.py          # Isolated per-run git worktree + raw patch primitives
 │   └── code_tools.py        # Read-only list/read over the workspace
 ├── api/
-│   └── server.py            # FastAPI endpoints (ingest/ask/fix/refine/dispatch/pulls)
+│   └── server.py            # FastAPI endpoints (ingest/status/ask/ask-stream)
 ├── utils/
 │   ├── sandbox.py           # Hardened Docker execution for agent-authored commands
 │   ├── db.py                # SQLAlchemy models and session factory
@@ -107,9 +115,9 @@ graph TD
 ├── scripts/
 │   └── benchmark_retrieval.py  # Index stats, search latency, hit-rate
 ├── ui/
-│   ├── index.html           # Dashboard: Q&A, issue submission, live pipeline logs
+│   ├── index.html           # Dashboard: ingestion + live Q&A pipeline
 │   └── styles.css
-├── data/                    # Local storage for repo snapshots and SQLite DB
+├── data/                    # Local storage: snapshots, worktrees, SQLite DB
 ├── tests/
 ├── config.py
 ├── requirements.txt
@@ -118,27 +126,22 @@ graph TD
 
 ---
 
-## 🛠️ Essential Features To Build
-
-Tracking what's already built vs. what's needed to reach the v1 scope above.
+## 🛠️ Feature Status
 
 | Feature | Status |
 |---|---|
-| Planner → Executor → Verifier pipeline | ✅ Built |
-| Executor applies real file edits in an isolated git worktree | ✅ Built |
-| Verifier runs the repo's actual test suite in a Docker sandbox (not just LLM judgment) | ✅ Built |
-| SQLite RAG indexing of source code + docs | ✅ Built |
-| GitHub Issues/PRs ingestion into RAG index | ✅ Built (requires `GITHUB_TOKEN`) |
-| Repo-aware Q&A endpoint (chat interface, no Executor) | ✅ Built |
-| Request routing between Q&A and fixing paths | ✅ Built |
-| Conversational patch refinement loop | ✅ Built |
-| Plain-English run summaries | ✅ Built |
-| Free-form feature request input (no issue link required) | ✅ Built |
+| MCP server exposing context + execution tools | ✅ Built |
+| Isolated per-run git worktrees (workspace never written to) | ✅ Built |
+| Hardened Docker sandbox (`--network none`, caps, timeout, fail-closed) | ✅ Built |
+| SQLite FTS5 indexing of source files + issues/PRs | ✅ Built |
+| GitHub ingestion: metadata, docs, file tree, issues, PRs | ✅ Built (requires `GITHUB_TOKEN`) |
+| Repo-aware Q&A with streamed pipeline stages | ✅ Built |
+| Provider-agnostic LLM configuration | ✅ Built |
+| Retrieval benchmark (index size, P50/P95, HitRate@k) | ✅ Built |
 | Minimal web dashboard | ✅ Built |
-| Removal of all sandbox-environment code/UI/deps | ✅ Built |
-| Opens real GitHub PRs via API (not just local diff) | ⬜ To build |
-| Repo size limits / per-run timeout & cost caps | ⬜ Partial (sandbox timeout + char/file caps; no cost cap) |
-| Hosted deployment (GCP) | ⬜ To build |
+| Semantic (vector) retrieval alongside keyword search | ⬜ Optional (would restore ChromaDB + RRF fusion) |
+| Repo size limits / per-run cost caps | ⬜ Partial (sandbox timeout + char/file caps; no cost cap) |
+| Hosted deployment (GCP Cloud Run) | ⬜ To build |
 
 ---
 
@@ -190,19 +193,70 @@ Examples for other providers:
 
 `OPENAI_API_KEY` is still accepted as an alias for `LLM_API_KEY`.
 
-### Running
+### Running the Q&A dashboard
 
 ```bash
-python -m uvicorn api.server:app --reload
+make api          # uvicorn api.server:app
 ```
 
-Open `http://localhost:8000` to use the dashboard.
+Open `http://localhost:8000` to ingest a repository and ask questions.
+
+### Running the MCP server
+
+```bash
+make mcp                       # stdio, for desktop/CLI agents
+make mcp ARGS="--http"         # streamable HTTP on 127.0.0.1:8080
+```
+
+Point an MCP client at it. For example, a Claude Desktop / Cline-style config:
+
+```json
+{
+  "mcpServers": {
+    "taskchain": {
+      "command": "/absolute/path/to/taskchain-orchestrator/venv/bin/python",
+      "args": ["-m", "mcp_server.server"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/taskchain-orchestrator",
+        "DATABASE_URL": "sqlite:///data/rag_index.sqlite",
+        "GITHUB_TOKEN": "ghp_..."
+      }
+    }
+  }
+}
+```
+
+A typical agent session:
+
+```
+index_repository   { repo_url: "https://github.com/owner/repo" }
+search_code        { repo_id: "owner/repo", query: "where is auth handled?" }
+read_file          { repo_id: "owner/repo", path: "src/auth.py" }
+create_worktree    { repo_id: "owner/repo" }              -> worktree_id
+write_file         { worktree_id, path: "src/auth.py", content: "..." }
+sandbox_run        { worktree_id, command: "python -m pytest -q" }
+diff               { worktree_id }                        -> unified diff
+open_pull_request  { owner, repo, title, body, head_branch }
+discard_worktree   { worktree_id }
+```
+
+**Security model.** Tools never accept a host filesystem path — they accept the
+`worktree_id` returned by `create_worktree`, which is validated to live under
+`config.WORKTREES_DIR`. `sandbox_run` executes with `--network none`, a non-root user,
+memory/CPU/PID caps and a timeout, and refuses to run at all when Docker is unavailable
+(`SANDBOX_ALLOW_HOST_FALLBACK=1` opts into host execution for local development only).
 
 ### Testing
 
 ```bash
-PYTHONPATH=. venv/bin/pytest -v
+make check                                  # compile everything + run the suite
+PYTHONPATH=. venv/bin/pytest -q tests       # tests only
+PYTHONPATH=. venv/bin/pytest -q -m docker   # only the tests needing a Docker daemon
 ```
+
+The suite is hermetic by default: no network calls, a temporary SQLite database, and a
+stubbed LLM. Tests marked `docker` exercise the real sandbox and are skipped automatically
+when no daemon is available.
 
 ### Retrieval benchmark
 
@@ -241,12 +295,15 @@ Measured on this repository (`nik-shar/taskchain-orchestrator`, 37 indexed files
 
 ## 🗺️ Roadmap
 
-Stretch goals beyond v1 — not required for launch, useful for later iterations:
+Stretch goals — not required, useful later:
 
-- Auto-generated documentation / README for arbitrary repos
-- Missing-test generation for uncovered functions
-- Issue triage: rank open issues by how tractable they look for the agent
-- PR review assistant: review a human-authored PR against repo conventions
+- Semantic (vector) retrieval fused with keyword search via RRF, restoring a ChromaDB
+  collection alongside the FTS5 index (the config knobs `SEMANTIC_TOP_K` and `FINAL_TOP_K`
+  are still present, and `scripts/benchmark_retrieval.py` already measures hit-rate)
+- Persistent worktree sessions so an MCP client can resume across server restarts
+- Streamable-HTTP MCP transport on Cloud Run (verified locally; deployment is next)
+- Issue triage: rank open issues by how tractable they look
+- Per-run cost caps in addition to the sandbox's time and resource caps
 
 ---
 
