@@ -126,3 +126,52 @@ def test_fetcher_invokes_endpoints(mock_get, mock_check_rate_limit):
     assert snapshot.issues[0].is_good_first_issue is True
     assert len(snapshot.pull_requests) == 1
     assert snapshot.pull_requests[0].linked_issue == 1
+
+
+class _FakeResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = ""
+
+    def json(self):
+        return self._payload
+
+
+def _fake_request(self, client, url, params=None):
+    """Canned GitHub responses, enough for fetch_repo to run to completion."""
+    if url.endswith("/repos/null_owner/null_description"):
+        # What GitHub actually returns for a repository with no description or topics.
+        return _FakeResponse(
+            {"stargazers_count": 0, "language": None, "description": None, "topics": None}
+        )
+    if "/readme" in url or "/contents/CONTRIBUTING.md" in url or "/contents/.github" in url:
+        return _FakeResponse({}, 404)
+    if url.endswith("/contents/"):
+        return _FakeResponse([{"path": "README.md", "type": "file", "url": "u"}])
+    if "/issues" in url or "/pulls" in url:
+        return _FakeResponse([])
+    return _FakeResponse({}, 404)
+
+
+def test_fetch_repo_normalises_null_description_and_topics(monkeypatch):
+    """A null description must not survive as None.
+
+    `.get(key, default)` only falls back when the key is absent, so `None` would be kept
+    and later break the DNA summary join -- the failure reported as
+    "sequence item 3: expected str instance, NoneType found".
+    """
+    from ingestion.ingestion_pipeline import generate_repo_dna_summary
+
+    monkeypatch.setattr(GitHubIndexer, "_request", _fake_request)
+    snapshot = GitHubIndexer(github_token="dummy").fetch_repo(
+        "https://github.com/null_owner/null_description"
+    )
+
+    assert snapshot.metadata["description"] == ""
+    assert snapshot.metadata["topics"] == []
+
+    # The consumer must survive it end to end.
+    summary = generate_repo_dna_summary(snapshot)
+    assert "No description available." in summary
+    assert "null_owner/null_description" in summary

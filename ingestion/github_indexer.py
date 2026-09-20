@@ -162,7 +162,10 @@ def detect_tech_stack(file_contents: dict[str, str]) -> dict:
         try:
             import json
             data = json.loads(file_contents["package.json"])
-            deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+            deps = {
+                **(data.get("dependencies") or {}),
+                **(data.get("devDependencies") or {}),
+            }
             for fw in ["react", "next", "vue", "svelte", "express", "nest", "typescript"]:
                 if fw in deps:
                     tech["frameworks"].append(fw)
@@ -226,11 +229,14 @@ class GitHubIndexer:
             if meta_res.status_code == 404:
                 raise ValueError(f"GitHub repository not found: {owner}/{repo}")
             meta_data = meta_res.json()
+            # Note the `or` rather than a `.get(key, default)`: GitHub returns
+            # `"description": null` for repos without one, and `.get` only falls back
+            # when the key is *absent*, so the default never applies here.
             metadata = {
-                "stars": meta_data.get("stargazers_count", 0),
+                "stars": meta_data.get("stargazers_count") or 0,
                 "language": meta_data.get("language"),
-                "description": meta_data.get("description", ""),
-                "topics": meta_data.get("topics", []),
+                "description": meta_data.get("description") or "",
+                "topics": meta_data.get("topics") or [],
             }
 
             if progress_callback:
@@ -268,7 +274,7 @@ class GitHubIndexer:
             contents_res = self._request(client, f"{base_api_url}/contents/")
             if contents_res.status_code == 200:
                 for item in contents_res.json():
-                    path = item.get("path", "")
+                    path = item.get("path") or ""
                     file_tree.append(path)
                     filename = os.path.basename(path)
                     if filename in ALWAYS_KEEP and item.get("type") == "file":
@@ -286,7 +292,7 @@ class GitHubIndexer:
             github_res = self._request(client, f"{base_api_url}/contents/.github")
             if github_res.status_code == 200:
                 for item in github_res.json():
-                    file_tree.append(item.get("path", ""))
+                    file_tree.append(item.get("path") or "")
 
             tech_stack = detect_tech_stack(tech_stack_files)
 
@@ -330,9 +336,9 @@ class GitHubIndexer:
 
             for idx, issue_data in enumerate(issues_list):
                 num = issue_data.get("number")
-                title = issue_data.get("title", "")
+                title = issue_data.get("title") or ""
                 body_raw = issue_data.get("body") or ""
-                state = issue_data.get("state", "open")
+                state = issue_data.get("state") or "open"
 
                 comments = []
                 comments_res = self._request(client, f"{base_api_url}/issues/{num}/comments")
@@ -344,7 +350,9 @@ class GitHubIndexer:
                     ]
 
                 labels = [
-                    label.get("name", "") for label in issue_data.get("labels", [])
+                    label.get("name") or ""
+                    for label in issue_data.get("labels") or []
+                    if label.get("name")
                 ]
                 is_gfi = any(
                     "good first issue" in label.lower()
@@ -389,9 +397,9 @@ class GitHubIndexer:
             if prs_res.status_code == 200:
                 for pr_data in prs_res.json():
                     num = pr_data.get("number")
-                    title = pr_data.get("title", "")
+                    title = pr_data.get("title") or ""
                     body = pr_data.get("body") or ""
-                    state = pr_data.get("state", "closed")
+                    state = pr_data.get("state") or "closed"
                     merged = pr_data.get("merged_at") is not None
                     linked_issue = None
                     issue_match = re.search(

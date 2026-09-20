@@ -29,24 +29,33 @@ def update_progress(owner: str, repo: str, progress_pct: int, status_message: st
 
 
 def generate_repo_dna_summary(snapshot) -> str:
-    """Generate a concise repository DNA summary from the fetched snapshot."""
+    """Generate a concise repository DNA summary from the fetched snapshot.
+
+    Every field is coerced to a string. A repository with no description reports it as
+    null from the GitHub API, and `.get(key, default)` does not cover that case, so a
+    `None` here would otherwise break the `join` below.
+    """
+    description = snapshot.metadata.get("description") or "No description available."
+    top_level = ", ".join(str(path) for path in snapshot.file_tree[:10]) or "none"
     lines = [
         f"## {snapshot.owner}/{snapshot.repo}",
         "",
         "### What this repo does",
-        snapshot.metadata.get("description", "No description available."),
+        description,
         "",
         "### Tech stack",
         f"- Primary language: {snapshot.tech_stack.get('language') or 'unknown'}",
     ]
     if snapshot.tech_stack.get("frameworks"):
-        lines.append(f"- Frameworks/libraries: {', '.join(snapshot.tech_stack['frameworks'])}")
+        frameworks = ", ".join(str(f) for f in snapshot.tech_stack["frameworks"])
+        lines.append(f"- Frameworks/libraries: {frameworks}")
     if snapshot.tech_stack.get("build_tools"):
-        lines.append(f"- Build tools: {', '.join(snapshot.tech_stack['build_tools'])}")
+        build_tools = ", ".join(str(t) for t in snapshot.tech_stack["build_tools"])
+        lines.append(f"- Build tools: {build_tools}")
     lines.extend([
         "",
         "### Entry points",
-        f"- Top-level files: {', '.join(snapshot.file_tree[:10])}",
+        f"- Top-level files: {top_level}",
         "",
         "### Recent activity",
         f"- Open issues: {sum(1 for i in snapshot.issues if i.state == 'open')}",
